@@ -48,6 +48,11 @@ backup() {
   echo "backup: $b"
 }
 
+# A Mac where Claude Code has never written its settings has no file yet: start from an empty object.
+current() {
+  if [[ -f "$SETTINGS" ]]; then cat "$SETTINGS"; else echo '{}'; fi
+}
+
 case "${1:-}" in
   print)
     out="${2:-/dev/stdout}"
@@ -55,9 +60,10 @@ case "${1:-}" in
     ;;
   install)
     [[ -x "$CLI" ]] || { echo "missing $CLI — run scripts/build-app.sh --install first" >&2; exit 1; }
-    backup
+    mkdir -p "$(dirname "$SETTINGS")"
+    if [[ -f "$SETTINGS" ]]; then backup; fi
     tmp="$(mktemp)"
-    strip_ours < "$SETTINGS" | jq --argjson h "$(hooks_json)" --arg p "$PRESENCE" '
+    current | strip_ours | jq --argjson h "$(hooks_json)" --arg p "$PRESENCE" '
       .hooks = ((.hooks // {}) as $old | reduce ($h | keys[]) as $k ($old; .[$k] = ((.[$k] // []) + $h[$k])))
       | .env.CLAUDE_CLIENT_PRESENCE_FILE = $p' > "$tmp"
     jq -e . "$tmp" >/dev/null
@@ -65,9 +71,14 @@ case "${1:-}" in
     echo "installed beckon hooks into $SETTINGS"
     ;;
   uninstall)
+    [[ -f "$SETTINGS" ]] || { echo "no $SETTINGS: nothing to remove"; exit 0; }
     backup
     tmp="$(mktemp)"
-    strip_ours < "$SETTINGS" | jq --arg p "$PRESENCE" 'if .env.CLAUDE_CLIENT_PRESENCE_FILE == $p then del(.env.CLAUDE_CLIENT_PRESENCE_FILE) else . end' > "$tmp"
+    # Objects this leaves empty go too, so the file ends up as it was before the install.
+    strip_ours < "$SETTINGS" | jq --arg p "$PRESENCE" '
+      (if .env.CLAUDE_CLIENT_PRESENCE_FILE == $p then del(.env.CLAUDE_CLIENT_PRESENCE_FILE) else . end)
+      | (if .env == {} then del(.env) else . end)
+      | (if .hooks == {} then del(.hooks) else . end)' > "$tmp"
     jq -e . "$tmp" >/dev/null
     mv "$tmp" "$SETTINGS"
     echo "removed beckon hooks from $SETTINGS"
