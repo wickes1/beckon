@@ -18,6 +18,7 @@ IDENTITY="${BECKON_SIGN_IDENTITY:-beckon Dev}"
 REPO="${BECKON_REPO:-wickes1/beckon}"
 VERSION="$(sed -n 's/^public let beckonVersion = "\(.*\)"$/\1/p' Sources/BeckonCore/Paths.swift)"
 [[ -n "$VERSION" ]] || { echo "could not read beckonVersion" >&2; exit 1; }
+grep -q "\"version\": \"$VERSION\"" plugin/.claude-plugin/plugin.json || { echo "plugin/.claude-plugin/plugin.json version differs from beckonVersion ($VERSION)" >&2; exit 1; }
 security find-identity -v -p codesigning | grep -qF "\"$IDENTITY\"" || { echo "no \"$IDENTITY\" signing identity" >&2; exit 1; }
 
 # Two single-arch builds joined with lipo: a multi-arch `swift build` needs full Xcode, this works with
@@ -32,6 +33,9 @@ cp Resources/Info.plist "$APP/Contents/Info.plist"
 bin_dir() { swift build -c release --triple "$1-apple-macosx14.0" --scratch-path ".build/release-$1" --show-bin-path; }
 for bin in BeckonApp beckon; do
   lipo -create "$(bin_dir arm64)/$bin" "$(bin_dir x86_64)/$bin" -output "$APP/Contents/MacOS/$bin"
+  # Debug symbols name every object file by its full path on the build machine: a release must not carry that.
+  strip -S "$APP/Contents/MacOS/$bin" 2>/dev/null
+  if LC_ALL=C grep -aq "$HOME" "$APP/Contents/MacOS/$bin"; then echo "$bin still contains $HOME after strip" >&2; exit 1; fi
 done
 
 # The VS Code extension rides inside the bundle, so an install that has no checkout of this repo (Homebrew)
@@ -49,11 +53,14 @@ SIGN=(codesign --force --sign "$IDENTITY")
 codesign --verify --strict "$APP"
 
 ZIP="dist/Beckon-$VERSION.zip"
-ditto -c -k --keepParent "$APP" "$ZIP"
+# No extended attributes in the zip: plain `unzip` would unpack them as ._ files inside the bundle, and the
+# signature then fails to verify.
+zip_app() { ditto -c -k --norsrc --noextattr --keepParent "$APP" "$ZIP"; }
+zip_app
 if [[ -n "${BECKON_NOTARY_PROFILE:-}" ]]; then
   xcrun notarytool submit "$ZIP" --keychain-profile "$BECKON_NOTARY_PROFILE" --wait
   xcrun stapler staple "$APP"
-  rm "$ZIP" && ditto -c -k --keepParent "$APP" "$ZIP"  # the zip must carry the stapled ticket
+  rm "$ZIP" && zip_app  # the zip must carry the stapled ticket
 else
   echo "not notarized (BECKON_NOTARY_PROFILE unset): installs through the cask, which clears the quarantine flag; a zip downloaded by hand is refused by Gatekeeper"
 fi
