@@ -125,8 +125,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             // After SwiftUI has dropped the answered card's text field.
             DispatchQueue.main.async { self?.panel.yieldKeyIfIdle() }
         }
-        Presence.start()
-
         server = Server(onRequest: Intake.handle)
         do {
             try server.start()
@@ -137,6 +135,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             alert.runModal()
             NSApp.terminate(nil)
         }
+        // After the server: it creates the directory the presence file lives in, which a first launch lacks.
+        Presence.start()
     }
 }
 
