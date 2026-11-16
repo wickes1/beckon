@@ -2,7 +2,7 @@
   "name": "beckon",
   "displayName": "beckon",
   "description": "Lets the beckon panel jump to the exact VS Code window and terminal where Claude Code is waiting.",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "publisher": "wickend",
   "license": "MIT",
   "icon": "icon.png",
@@ -13,6 +13,7 @@
   "engines": { "vscode": "^1.80.0" },
   "categories": ["Other"],
   "extensionKind": ["ui"],
+  "capabilities": { "untrustedWorkspaces": { "supported": true } },
   "activationEvents": ["onStartupFinished"],
   "main": "./extension.js",
   "files": ["extension.js", "icon.png", "LICENSE"]

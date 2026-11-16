@@ -57,10 +57,22 @@ function removeFiles() {
   }
 }
 
+// A window that was killed never ran deactivate: its socket and registry entry are still here.
+function sweepDeadWindows() {
+  for (const name of fs.readdirSync(dir)) {
+    const pid = Number(name.split('.')[0]);
+    if (!Number.isInteger(pid) || pid <= 0 || pid === process.pid) continue;
+    try { process.kill(pid, 0); } catch (error) {
+      if (error.code === 'ESRCH') { try { fs.unlinkSync(path.join(dir, name)); } catch { /* already gone */ } }
+    }
+  }
+}
+
 function activate(context) {
   if (process.platform !== 'darwin') return;
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
   removeFiles();
+  sweepDeadWindows();
   server = net.createServer((connection) => {
     let buffer = '';
     connection.setEncoding('utf8');
