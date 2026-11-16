@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-// The panel's look, ported from prototype/panel.swift (the design reference; rules in docs/plan.md).
+// The panel's look, ported from prototype/panel.swift (the design reference).
 // Smoothness first: no shadows, cached icons, no per-frame measuring, one glass shell per card.
 
 let accent = Color(red: 0xD9 / 255, green: 0x77 / 255, blue: 0x57 / 255)  // Claude terracotta, the only accent
@@ -417,9 +417,12 @@ struct PermissionContent: View {
                 }
             }
         }
+        // Deny works with the field empty too. Only words the user typed skip the pointer half of the click guard.
         ActionBar(placeholder: "Tell Claude what to do instead…", text: replyBinding(id), focused: $replyFocused,
-                  buttons: [BarButton("Deny", primary: true, enabled: !reply.isEmpty) {
-                      store.answer(id, decision: PermissionFormat.decision(.deny, message: store.draft(id).reply), confirmation: "Denied — told Claude", typed: true)
+                  buttons: [BarButton("Deny", primary: !reply.isEmpty) {
+                      let words = store.draft(id).reply.trimmingCharacters(in: .whitespacesAndNewlines)
+                      store.answer(id, decision: PermissionFormat.decision(.deny, message: words),
+                                   confirmation: words.isEmpty ? "Denied" : "Denied — told Claude", typed: !words.isEmpty)
                   }])
     }
 
