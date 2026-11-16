@@ -1,0 +1,9 @@
+.build/
+build/
+prototype/proto
+*.png
+!docs/images/*.png
+!vscode/icon.png
+.DS_Store
+*.vsix
+dist/

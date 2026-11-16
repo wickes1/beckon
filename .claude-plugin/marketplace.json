@@ -1,0 +1,14 @@
+{
+  "name": "beckon",
+  "description": "beckon: a floating macOS panel that answers Claude Code's prompts.",
+  "owner": {
+    "name": "wickes1"
+  },
+  "plugins": [
+    {
+      "name": "beckon",
+      "source": "./plugin",
+      "description": "Sends Claude Code's prompts to the beckon panel (macOS)."
+    }
+  ]
+}

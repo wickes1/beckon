@@ -1,0 +1,19 @@
+{
+  "name": "beckon",
+  "displayName": "beckon",
+  "description": "Lets the beckon panel jump to the exact VS Code window and terminal where Claude Code is waiting.",
+  "version": "0.2.0",
+  "publisher": "wickend",
+  "license": "MIT",
+  "icon": "icon.png",
+  "repository": { "type": "git", "url": "https://github.com/wickes1/beckon", "directory": "vscode" },
+  "homepage": "https://github.com/wickes1/beckon#readme",
+  "bugs": { "url": "https://github.com/wickes1/beckon/issues" },
+  "keywords": ["claude code", "claude", "terminal", "notifications", "macos"],
+  "engines": { "vscode": "^1.80.0" },
+  "categories": ["Other"],
+  "extensionKind": ["ui"],
+  "activationEvents": ["onStartupFinished"],
+  "main": "./extension.js",
+  "files": ["extension.js", "icon.png", "LICENSE"]
+}

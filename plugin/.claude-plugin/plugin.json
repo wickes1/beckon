@@ -1,0 +1,9 @@
+{
+  "name": "beckon",
+  "description": "Sends Claude Code's prompts to the beckon panel (macOS): approvals, questions, plan reviews, done and stopped notices. Needs Beckon.app installed and `beckon` on PATH.",
+  "version": "0.2.0",
+  "author": {
+    "name": "wickes1"
+  },
+  "license": "MIT"
+}
