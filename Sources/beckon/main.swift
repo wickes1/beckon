@@ -26,6 +26,7 @@ func usage(asked: Bool = false) -> Never {
                                   to do something, e.g. log in). --key names it so `dismiss` can take it down.
       beckon dismiss --key <name> remove that card once the thing is done
       beckon doctor               check the app, hooks and permissions
+      beckon test                 show a sample card, to see that the panel works
       beckon --version
 
     """
@@ -211,6 +212,16 @@ case "notify", "dismiss":
     guard send(event: argv[1] == "notify" ? "Notify" : "Dismiss", payload: Array("{\(fields.joined(separator: ","))}".utf8), wait: false) != nil else {
         fail("the beckon app isn't running, so nothing was shown")
     }
+
+case "test":
+    guard argv.count == 2 else { usage() }
+    // An "Action needed" card, because that kind shows wherever the user is looking: a sample prompt would be
+    // held back while this terminal is in front, which is exactly when someone runs this.
+    let card = #"{"title":"beckon is working","message":"A sample card. Real prompts are held back while you look at their terminal.","steps":["Click “I've done it” to close this card"],"key":"beckon-test"}"#
+    guard send(event: "Notify", payload: Array(card.utf8), wait: false) != nil else {
+        fail("the beckon app isn't running (open Beckon.app), so nothing was shown")
+    }
+    print("sample card sent: look at the top right of the screen")
 
 case "doctor":
     alarm(10)  // doctor is asked by a person: a stuck app must end in an error, not a hang (SIGALRM exits)
