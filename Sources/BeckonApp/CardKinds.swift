@@ -75,6 +75,9 @@ struct QuestionsContent: View {
     func go(_ i: Int) { withAnimation(spring) { store.update(item.id) { $0.current = i; $0.previewOpen = nil } } }
 
     func pick(_ o: QOption, _ q: Question, isLast: Bool) {
+        // The click guard as it stands at the click. The send below runs 0.25 s later and store.answer checks
+        // again then, which on its own would count that pause towards the time a card must have been up.
+        let armed = store.armed(item.id)
         store.update(item.id) { d in
             var set = d.picks[q.id] ?? []
             if q.multiSelect {
@@ -90,6 +93,8 @@ struct QuestionsContent: View {
         // approval's Yes does. Multi-select and typed answers keep Send — only the user knows when those are done.
         // Short pause either way so the pick registers before the card moves on.
         if store.draft(item.id).complete(view.questions.count) {
+            // Too early to count as an answer: the pick stays marked, and the next pick or Send sends it.
+            guard armed else { return }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { send() }
         } else if !isLast {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { go(q.id + 1) }
