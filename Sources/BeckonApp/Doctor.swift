@@ -37,27 +37,35 @@ enum Doctor {
 
         let settings = (try? JSONSerialization.jsonObject(with: Data(contentsOf: URL(fileURLWithPath: NSHomeDirectory() + "/.claude/settings.json")))) as? [String: Any] ?? [:]
         let hooks = settings["hooks"] as? [String: Any] ?? [:]
+        // What to tell the user to run depends on how they installed: only a checkout has scripts/hooks.sh.
+        let plugin = "claude plugin marketplace add wickes1/beckon, then claude plugin install beckon@beckon"
+        let repair = fromSource ? "run scripts/hooks.sh install"
+                                : "take beckon's hooks out of ~/.claude/settings.json and install the plugin instead (\(plugin))"
         let wired = events.filter { ours(hooks[$0]) != nil }
-        if wired.count == events.count {
+        let dead = Set(events.compactMap { ours(hooks[$0])?["command"] as? String }).filter { !runnable($0) }.sorted()
+        if !dead.isEmpty {
+            // A hook that is merely named beckon proves nothing: the app it pointed at may have moved or gone.
+            bad("hooks: ~/.claude/settings.json runs \(dead.joined(separator: ", ")), and there is no executable file there — \(repair)")
+        } else if wired.count == events.count {
             ok("hooks: all \(events.count) events in ~/.claude/settings.json")
         } else if wired.isEmpty {
             if pluginInstalled() { ok("hooks: from the beckon Claude Code plugin") }
-            else { bad("hooks: none found — run scripts/hooks.sh install, or install the beckon plugin") }
+            else { bad("hooks: none found — " + (fromSource ? "run scripts/hooks.sh install, or install the beckon plugin" : "install the plugin: \(plugin)")) }
         } else {
-            bad("hooks: missing \(events.filter { !wired.contains($0) }.joined(separator: ", ")) — run scripts/hooks.sh install")
+            bad("hooks: missing \(events.filter { !wired.contains($0) }.joined(separator: ", ")) — \(repair)")
         }
         if let stop = ours(hooks["Stop"]) {
             let waits = (stop["args"] as? [String] ?? []).contains("--rewake")
             let background = stop["asyncRewake"] as? Bool == true
-            if waits && !background { bad("the Stop hook waits (--rewake) without asyncRewake: it holds up the end of every turn — run scripts/hooks.sh install") }
-            else if !waits || !background { note("the Stop hook isn't the asyncRewake form: Done cards have no reply field — run scripts/hooks.sh install") }
+            if waits && !background { bad("the Stop hook waits (--rewake) without asyncRewake: it holds up the end of every turn — \(repair)") }
+            else if !waits || !background { note("the Stop hook isn't the asyncRewake form: Done cards have no reply field — \(repair)") }
         }
 
         let env = settings["env"] as? [String: Any] ?? [:]
         if env["CLAUDE_CLIENT_PRESENCE_FILE"] as? String == BeckonPaths.presenceFile {
             ok("presence file wired: phone pushes only while the screen is locked (\(Presence.locked ? "locked now" : "unlocked now"))")
         } else {
-            note("presence file not wired: Claude Code doesn't know when you're at the Mac — add \"CLAUDE_CLIENT_PRESENCE_FILE\": \"\(BeckonPaths.presenceFile)\" to the env block of ~/.claude/settings.json (scripts/hooks.sh install does it)")
+            note("presence file not wired: Claude Code doesn't know when you're at the Mac — add \"CLAUDE_CLIENT_PRESENCE_FILE\": \"\(BeckonPaths.presenceFile)\" to the env block of ~/.claude/settings.json" + (fromSource ? " (scripts/hooks.sh install does it)" : ""))
         }
 
         if vscodeWindows > 0 {
@@ -83,6 +91,29 @@ enum Doctor {
             }
         }
         return nil
+    }
+
+    /// A source install is the copy scripts/build-app.sh puts in ~/Applications, the only place scripts/hooks.sh
+    /// wires. Any other copy (Homebrew's, in /Applications) came without the scripts and gets its hooks from the plugin.
+    private static var fromSource: Bool { Bundle.main.bundlePath == NSHomeDirectory() + "/Applications/Beckon.app" }
+
+    /// Where a hook command given as a bare name may be found. Claude Code looks on its own PATH, which the app
+    /// can't see (an app started from Finder has only the system directories), so this adds the places the two
+    /// install routes link the CLI: Homebrew's bin on either architecture, and ~/.local/bin.
+    static var searchPath: [String] {
+        (ProcessInfo.processInfo.environment["PATH"] ?? "").split(separator: ":").map(String.init)
+            + ["/opt/homebrew/bin", "/usr/local/bin", NSHomeDirectory() + "/.local/bin"]
+    }
+
+    /// Whether a hook's command is something Claude Code can start: an executable file, at that path or, for a
+    /// bare name, in one of `path`.
+    static func runnable(_ command: String, path: [String] = searchPath) -> Bool {
+        func executable(_ file: String) -> Bool {
+            var directory: ObjCBool = false
+            return FileManager.default.fileExists(atPath: file, isDirectory: &directory) && !directory.boolValue
+                && FileManager.default.isExecutableFile(atPath: file)
+        }
+        return command.contains("/") ? executable(command) : path.contains { executable($0 + "/" + command) }
     }
 
     private static func pluginInstalled() -> Bool {
