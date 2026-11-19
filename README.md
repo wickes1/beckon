@@ -52,7 +52,7 @@ Paste this into Claude Code (or another coding agent):
 
 ## Install
 
-Needs macOS 14 or later and Claude Code.
+Needs macOS 14 or later and Claude Code 2.1.287 or later: the hooks pass their arguments as `args` (added in 2.1.139), the phone-push setting is `CLAUDE_CLIENT_PRESENCE_FILE` (added in 2.1.181), and 2.1.287 fixed a background (`asyncRewake`) hook waking Claude again and again when its command is missing.
 
 ### Homebrew
 
@@ -73,7 +73,7 @@ Then restart the Claude Code sessions that were already running, ask for somethi
 | Start with the Mac | menu bar icon → Open at Login |
 | Exact VS Code window and terminal | install the beckon extension: [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=wickend.beckon), [Open VSX](https://open-vsx.org/extension/wickend/beckon) for Cursor and VSCodium, or `code --install-extension /Applications/Beckon.app/Contents/Resources/beckon.vsix`. Without it a click only brings VS Code forward, and a prompt is held back whenever VS Code is in front. VS Code keeps extensions per profile, so install it in each profile you use |
 | Phone pushes only while the screen is locked | the `env` line `beckon doctor` prints (see "Phone pushes") |
-| After `brew upgrade` | `open -a Beckon` — an upgrade quits the app |
+| After `brew upgrade` | `open -a Beckon` (an upgrade quits the app), then `claude plugin update beckon@beckon` and restart the Claude Code sessions, so the hooks match the new CLI |
 
 Beckon.app is self-signed, not notarized. The cask clears the download quarantine flag after installing; without that, Gatekeeper refuses the app. A zip downloaded by hand from the releases page stays blocked, so install through Homebrew or from source.
 
@@ -86,11 +86,13 @@ git clone https://github.com/wickes1/beckon && cd beckon
 scripts/install.sh
 ```
 
-`scripts/install.sh` creates a self-signed signing identity (`beckon Dev`), builds and installs `~/Applications/Beckon.app`, links `~/.local/bin/beckon`, merges the hooks and the presence line into `~/.claude/settings.json` (a backup is written next to it), installs the VS Code extension if `code` is on PATH, and runs `beckon doctor`. This route writes the hooks itself: do not add the plugin on top, or every prompt arrives twice.
+`scripts/install.sh` creates a self-signed signing identity (`beckon Dev`), builds and installs `~/Applications/Beckon.app`, links `~/.local/bin/beckon`, merges the hooks and the presence line into `~/.claude/settings.json` (a backup is written next to it), installs the VS Code extension if `code` is on PATH, and runs `beckon doctor`. Its first step, `scripts/make-signing-cert.sh`, adds that certificate to your login keychain and marks it trusted for code signing; macOS asks for your login password to allow it. This route writes the hooks itself: do not add the plugin on top, or every prompt arrives twice.
 
 ### Permissions macOS will ask for
 
 The first time you click through to Ghostty, Terminal.app or Brave, macOS asks whether beckon may control that app. Until you allow it, beckon can only bring the app forward and assumes you're looking at the session whenever that app is in front.
+
+If you answered Don't Allow, macOS does not ask again and `beckon doctor` shows that app as `denied`. Turn it on under System Settings → Privacy & Security → Automation → beckon, or run `tccutil reset AppleEvents dev.wickend.beckon` to be asked again at the next click.
 
 ### No card?
 
@@ -104,11 +106,17 @@ The first time you click through to Ghostty, Terminal.app or Brave, macOS asks w
 
 | Installed with | Remove with |
 |---|---|
-| Homebrew | `brew uninstall --zap --cask beckon`, `claude plugin uninstall beckon@beckon`, `claude plugin marketplace remove beckon`, and the `CLAUDE_CLIENT_PRESENCE_FILE` line if you added it |
+| Homebrew | first `claude plugin uninstall beckon@beckon` and `claude plugin marketplace remove beckon`, then `brew uninstall --zap --cask beckon`, and the `CLAUDE_CLIENT_PRESENCE_FILE` line if you added it. The plugin goes first: left installed without the CLI, its hooks fail to start on every event |
 | Source | `scripts/hooks.sh uninstall`, then `pkill -x BeckonApp; rm -rf ~/Applications/Beckon.app ~/.local/bin/beckon ~/Library/Application\ Support/beckon ~/Library/Logs/beckon.log ~/Library/Preferences/dev.wickend.beckon.plist` |
 | VS Code extension | `code --uninstall-extension wickend.beckon` |
 
-What stays after either route: the Automation grants (`tccutil reset AppleEvents dev.wickend.beckon` clears them) and, for a source install, the `beckon Dev` certificate in the login keychain and the `~/.claude/settings.json.beckon-backup-*` files.
+Before either route, turn off menu bar icon → Open at Login if you had turned it on: nothing above does. With the app already gone, look for a leftover beckon entry under System Settings → General → Login Items.
+
+What stays after either route:
+
+- the Automation grants; `tccutil reset AppleEvents dev.wickend.beckon` clears them
+- `~/Library/Application Support/beckon/vscode/`, which every VS Code window makes again for as long as the extension is installed: uninstall the extension, then delete `~/Library/Application Support/beckon`
+- for a source install, the `beckon Dev` certificate in the login keychain and the `~/.claude/settings.json.beckon-backup-*` files
 
 ## What works where
 
