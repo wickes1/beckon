@@ -72,14 +72,16 @@ enum PermissionFormat {
         case "WebSearch":
             return ("Search the web", str("query") ?? "", [])
         default:
-            let title: String
-            if toolName.hasPrefix("mcp__") {
-                let parts = toolName.split(separator: "_", omittingEmptySubsequences: true)
-                title = parts.count >= 3 ? "\(parts.dropFirst(2).joined(separator: "_")) (\(parts[1]))" : toolName
-            } else {
-                title = file.map { "\(toolName) \(($0 as NSString).lastPathComponent)" } ?? "Use \(toolName)"
+            let json = compactJSON(input, limit: 400)
+            guard toolName.hasPrefix("mcp__") else {
+                return (file.map { "\(toolName) \(($0 as NSString).lastPathComponent)" } ?? "Use \(toolName)", json, [])
             }
-            return (title, compactJSON(input, limit: 400), [])
+            // mcp__<server>__<tool>: the separator is two underscores, and both names may hold single ones.
+            // The headline is a reading aid; the body carries the name exactly as Claude Code sent it, since
+            // that is what an allow rule matches.
+            let parts = toolName.components(separatedBy: "__")
+            let title = parts.count >= 3 && !parts[1].isEmpty ? "\(parts.dropFirst(2).joined(separator: "__")) (\(parts[1]))" : toolName
+            return (title, toolName + "\n" + json, [])
         }
     }
 

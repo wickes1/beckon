@@ -87,6 +87,23 @@ private func json(_ s: String) -> [String: Any] {
         #expect(body == "/x/notes.md")
         #expect(diff == ["- a", "+ b"])
     }
+
+    // An MCP tool is named mcp__<server>__<tool>, and either part may contain underscores. Cut anywhere else
+    // and the card names a server and a tool that don't exist ("db_drop" on "my"), which is what the user
+    // would be approving.
+    @Test func mcpToolIsSplitOnDoubleUnderscores() {
+        #expect(PermissionFormat.describe(toolName: "mcp__my_db__drop", input: [:]).0 == "drop (my_db)")
+        #expect(PermissionFormat.describe(toolName: "mcp__plugin_claude-mem_mcp-search__get_observations", input: [:]).0 == "get_observations (plugin_claude-mem_mcp-search)")
+        #expect(PermissionFormat.describe(toolName: "mcp__db__run__all", input: [:]).0 == "run__all (db)")
+        #expect(PermissionFormat.describe(toolName: "mcp__db", input: [:]).0 == "mcp__db")  // no tool part: shown as it came
+    }
+
+    // The headline rearranges the name; the body must show it untouched, with the input, so the user can
+    // check exactly which tool is asking.
+    @Test func mcpCardBodyCarriesTheRawToolName() {
+        let (_, body, _) = PermissionFormat.describe(toolName: "mcp__my_db__drop", input: ["table": "users"])
+        #expect(body == "mcp__my_db__drop\n{\"table\":\"users\"}")
+    }
 }
 
 @Suite struct StaleCards {
