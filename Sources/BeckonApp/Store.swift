@@ -114,11 +114,13 @@ final class Store {
     var showAll = false
     var pointerInside = false
     var replyable: Set<String> = []    // Done cards whose Stop hook is still listening for a reply
+    var countdowns: [String: Date] = [:]  // id → since when the card has been in view, while it is counting down to leaving by itself
 
     @ObservationIgnored private var shownAt: [String: Date] = [:]
     @ObservationIgnored private var connections: [String: Connection] = [:]
     @ObservationIgnored private var watchers: [String: DispatchSourceProcess] = [:]
     @ObservationIgnored var onChange: (() -> Void)?
+    @ObservationIgnored private var kept: Set<String> = []  // cards whose countdown was called off for good
 
     static let visibleRows = 4
 
@@ -129,6 +131,9 @@ final class Store {
         let rest = shown.filter { $0.id != expanded }
         return head + rest.filter { $0.kind.needsYou } + rest.filter { !$0.kind.needsYou }
     }
+
+    /// The cards actually drawn: the rest of `ordered` is folded under "+N more" until the user unfolds it.
+    var onScreen: [Item] { showAll ? ordered : Array(ordered.prefix(Self.visibleRows + 1)) }
 
     /// What the menu bar counts and lists: everything still waiting on the user, on screen or not.
     var pending: [Item] { items.filter { $0.kind.needsYou } }
@@ -162,6 +167,7 @@ final class Store {
             if item.visibility == .shown { place(item) }
         }
         if item.visibility == .shown { Chime.play(for: item.kind) }
+        syncCountdowns()
         onChange?()
     }
 
@@ -186,6 +192,9 @@ final class Store {
             }
             if open { expanded = id; unseen.remove(id) }
         }
+        // Picked from the menu bar: the user asked for this card, which is as good as pointing at it.
+        if open { kept.insert(id) }
+        syncCountdowns()
         onChange?()
     }
 
@@ -226,14 +235,15 @@ final class Store {
 
     /// The × button. A prompt Claude Code is also showing in the terminal stays pending in the menu bar;
     /// anything else has no other home, so closing it ends it.
-    func close(_ id: String) {
+    func close(_ id: String, animation: Animation = spring) {
         guard let i = items.firstIndex(where: { $0.id == id }) else { return }
-        guard items[i].kind.hasTerminalDialog else { remove(id); return }
-        withAnimation(spring) {
+        guard items[i].kind.hasTerminalDialog else { remove(id, animation: animation); return }
+        withAnimation(animation) {
             items[i].visibility = .closed
             unseen.remove(id)
             if expanded == id { expanded = ordered.first?.id }
         }
+        syncCountdowns()
         onChange?()
     }
 
@@ -246,12 +256,13 @@ final class Store {
     }
 
     /// Leaves without a decision; a still-waiting hook gets an empty reply so it exits and Claude carries on.
-    func remove(_ id: String) {
+    func remove(_ id: String, animation: Animation = spring) {
         connections.removeValue(forKey: id)?.reply("")
         watchers.removeValue(forKey: id)?.cancel()
         shownAt[id] = nil
+        kept.remove(id)
         guard items.contains(where: { $0.id == id }) else { return }
-        withAnimation(spring) {
+        withAnimation(animation) {
             items.removeAll { $0.id == id }
             drafts[id] = nil
             sent[id] = nil
@@ -259,7 +270,9 @@ final class Store {
             replyable.remove(id)
             if expanded == id { expanded = ordered.first?.id }
         }
+        syncCountdowns()
         onChange?()
+        sweep()  // the card that left may be what kept an overdue one waiting (its draft made the panel engaged)
     }
 
     func remove(where match: (Item) -> Bool) {
@@ -285,7 +298,100 @@ final class Store {
 
     func expand(_ id: String) {
         withAnimation(spring) { expanded = id; unseen.remove(id) }
+        syncCountdowns()
     }
+
+    func toggleShowAll() {
+        withAnimation(spring) { showAll.toggle() }
+        syncCountdowns()
+    }
+
+    // MARK: Leaving by itself
+
+    /// How long a card stays in view before it leaves by itself; nil = it never does. The menu bar sets this.
+    /// A change starts every card in view afresh: a card that has sat there for minutes must not vanish the
+    /// moment a short time is picked.
+    @ObservationIgnored var stay: TimeInterval? = AutoDismiss.after {
+        didSet {
+            countdowns = [:]
+            syncCountdowns()
+        }
+    }
+
+    /// Brings the countdowns in line with what is in view. A card's time starts when it is drawn, not when it
+    /// arrived: one held back while its session is in front, closed, or folded under "+N more" has no countdown,
+    /// and gets a full one when it comes into view.
+    private func syncCountdowns(now: Date = Date()) {
+        guard let stay else {
+            if !countdowns.isEmpty { countdowns = [:] }
+            return
+        }
+        let counting = Set(onScreen.map(\.id)).subtracting(kept)
+        for id in countdowns.keys where !counting.contains(id) { countdowns[id] = nil }
+        for id in counting where countdowns[id] == nil {
+            countdowns[id] = now
+            DispatchQueue.main.asyncAfter(deadline: .now() + stay) { [weak self] in self?.sweep() }
+        }
+    }
+
+    /// The pointer came onto this card: its countdown is off for good, and it stays until dismissed by hand.
+    func hovered(_ id: String) {
+        guard countdowns[id] != nil else { return }
+        kept.insert(id)
+        withAnimation(spring) { countdowns[id] = nil }
+    }
+
+    /// Lets go of every card whose time is up. Called by each card's timer, and again when whatever held an
+    /// overdue card back has ended (the pointer left the panel, a card was removed).
+    /// Nothing leaves while the user is engaged with the panel: a card vanishing would move the others under
+    /// the pointer or the text being typed. A card holding an unsent answer, or showing its "Sent" line, is the
+    /// user's own doing and keeps its place for good.
+    func sweep(now: Date = Date()) {
+        guard let stay, !engaged else { return }
+        for (id, since) in countdowns where now.timeIntervalSince(since) >= stay {
+            guard countdowns[id] != nil, let item = items.first(where: { $0.id == id }) else { continue }
+            if sent[id] != nil || draft(id).hasInput {
+                kept.insert(id)
+                countdowns[id] = nil
+                continue
+            }
+            switch AutoDismiss.whenTimeIsUp(item.kind) {
+            case .dismiss: remove(id, animation: AutoDismiss.fade)
+            case .close: close(id, animation: AutoDismiss.fade)
+            }
+        }
+    }
+}
+
+/// Cards that leave by themselves after a while. Off unless the user picks a time in the menu bar.
+enum AutoDismiss {
+    static let choices: [TimeInterval] = [10, 30, 60, 300]
+
+    private static let key = "cards.dismissAfter"
+    /// The chosen time in seconds; nil = Never, which is also what an unset or unknown value means.
+    static var after: TimeInterval? {
+        get {
+            let seconds = UserDefaults.standard.double(forKey: key)
+            return choices.contains(seconds) ? seconds : nil
+        }
+        set { UserDefaults.standard.set(newValue ?? 0, forKey: key) }
+    }
+
+    static func title(_ seconds: TimeInterval?) -> String {
+        guard let seconds else { return "Never" }
+        return seconds < 120 ? "After \(Int(seconds)) Seconds" : "After \(Int(seconds / 60)) Minutes"
+    }
+
+    enum TimeUp { case dismiss, close }
+
+    /// What a card does when its time is up. News (Done, Stopped) and a skill's "Action needed" go the way their
+    /// Dismiss button sends them. A prompt Claude is still waiting on is only closed, as its × does: the hook
+    /// keeps waiting and the item stays in the menu bar, because a timer must never answer for the user or drop
+    /// a question they haven't seen. This is the one place that rule lives.
+    static func whenTimeIsUp(_ kind: Kind) -> TimeUp { kind.hasTerminalDialog ? .close : .dismiss }
+
+    /// Slower than every other change on the panel, so a card leaving by itself is seen to leave.
+    static let fade = Animation.easeOut(duration: 1.2)
 }
 
 let store = Store()
