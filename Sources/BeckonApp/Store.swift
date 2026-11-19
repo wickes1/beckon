@@ -330,7 +330,9 @@ final class Store {
         for id in countdowns.keys where !counting.contains(id) { countdowns[id] = nil }
         for id in counting where countdowns[id] == nil {
             countdowns[id] = now
-            DispatchQueue.main.asyncAfter(deadline: .now() + stay) { [weak self] in self?.sweep() }
+            // Wall clock, like the bar: a deadline in uptime stands still while the Mac sleeps, and the card
+            // would sit there after waking with its bar already empty.
+            DispatchQueue.main.asyncAfter(wallDeadline: .now() + stay) { [weak self] in self?.sweep() }
         }
     }
 
