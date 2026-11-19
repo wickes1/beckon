@@ -61,9 +61,23 @@ final class Server {
     }
 
     private func acceptLoop() {
+        var lastError: Int32 = 0
         while true {
             let client = accept(listenFD, nil, nil)
-            if client < 0 { if errno == EINTR { continue }; return }
+            if client < 0 {
+                let code = errno
+                if code == EINTR { continue }
+                // Logged once per run of the same error: with the descriptor table full it recurs ten times a second.
+                if code != lastError { AuditLog.note("SERVER accept failed: \(String(cString: strerror(code))) (errno \(code))") }
+                lastError = code
+                // Out of descriptors, or a client that hung up before it was accepted: both pass by themselves.
+                // The pause keeps a full table from spinning this thread until a descriptor frees up.
+                if code == EMFILE || code == ENFILE || code == ECONNABORTED { usleep(100_000); continue }
+                // Anything else means the listening socket is gone, and with this thread goes every card.
+                AuditLog.note("SERVER stopped accepting: hooks fall back to the terminal until beckon is restarted")
+                return
+            }
+            lastError = 0
             var nosigpipe: Int32 = 1
             setsockopt(client, SOL_SOCKET, SO_NOSIGPIPE, &nosigpipe, socklen_t(MemoryLayout<Int32>.size))
             var uid: uid_t = 0, gid: gid_t = 0
