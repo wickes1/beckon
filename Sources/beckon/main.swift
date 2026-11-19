@@ -134,7 +134,12 @@ func send(event: String, payload: [UInt8], wait: Bool) -> [UInt8]? {
     let connected = withUnsafePointer(to: &addr) {
         $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { connect(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) }
     }
-    guard connected == 0 else { return nil }  // app not running
+    guard connected == 0 else {  // app not running
+        // Refused means the socket file is there with nobody behind it. An app that crashed or was force-quit
+        // also left its presence file, and Claude Code skips phone pushes for as long as that exists.
+        if errno == ECONNREFUSED { unlink(BeckonPaths.presenceFile) }
+        return nil
+    }
     guard writeAll(fd, envelope) else { return nil }
     shutdown(fd, SHUT_WR)  // the app reads to EOF, so the request needs no framing
     // A waiting event blocks here until the user answers in the panel, the item is resolved elsewhere
