@@ -158,3 +158,13 @@ private func decisionOf(_ s: String) -> [String: Any] {
         #expect(text.hasSuffix("also run the tests"))
     }
 }
+
+@Suite struct PlanLinks {
+    // A plan is text from the model, and a Markdown link hides where it goes behind its label. One click on the
+    // card must never open a local file or start another app: only web links stay live, the rest keep their words.
+    @Test func onlyWebLinksStayClickable() {
+        let text = planText("Read [the notes](file:///Users/x/notes.app), [settings](x-apple.systempreferences:com.apple.preference.security), <file:///etc/hosts> and [the docs](https://example.com/docs).")
+        #expect(text.runs.compactMap(\.link).map(\.absoluteString) == ["https://example.com/docs"])
+        #expect(String(text.characters) == "Read the notes, settings, file:///etc/hosts and the docs.")
+    }
+}

@@ -20,7 +20,10 @@ func appIcon(_ bundleID: String?) -> NSImage {
 private var planCache: [String: AttributedString] = [:]
 func planText(_ md: String) -> AttributedString {
     if let hit = planCache[md] { return hit }
-    let parsed = (try? AttributedString(markdown: md, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(md)
+    var parsed = (try? AttributedString(markdown: md, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(md)
+    // A Markdown link shows its text, not its target, and a click on it opens whatever the plan's author put
+    // there. Web links stay; any other target (a file, another app's URL scheme) is left as plain text.
+    for range in parsed.runs.filter({ $0.link.map { !$0.isWeb } ?? false }).map(\.range) { parsed[range].link = nil }
     planCache[md] = parsed
     return parsed
 }
