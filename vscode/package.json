@@ -2,7 +2,7 @@
   "name": "beckon",
   "displayName": "beckon",
   "description": "Lets the beckon panel jump to the exact VS Code window and terminal where Claude Code is waiting.",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "publisher": "wickend",
   "license": "MIT",
   "icon": "icon.png",

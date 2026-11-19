@@ -1,7 +1,7 @@
 import Darwin
 
 /// The one place the version is written; scripts/build-app.sh copies it into Info.plist.
-public let beckonVersion = "0.2.1"
+public let beckonVersion = "0.3.0"
 
 public enum BeckonPaths {
     /// Per-user directory, created 0700 by the app. Never /tmp: other users could reach a socket there.
