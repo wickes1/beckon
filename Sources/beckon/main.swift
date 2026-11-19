@@ -30,9 +30,10 @@ func usage(asked: Bool = false) -> Never {
       beckon --version
 
     """
-    // Help that was asked for is the output and a success; a wrong invocation is an error.
+    // Help that was asked for is the output and a success; a wrong invocation is an error. Exit 1 for it, never
+    // the conventional 2: from a hook Claude Code reads 2 as "block this" (the prompt is refused, the turn can't end).
     fputs(text, asked ? stdout : stderr)
-    exit(asked ? 0 : 2)
+    exit(asked ? 0 : 1)
 }
 
 func readAll(_ fd: Int32) -> [UInt8] {
@@ -165,7 +166,10 @@ case "--help", "-h":
     usage(asked: true)
 
 case "hook":
-    guard argv.count == 3 || (argv.count == 4 && argv[2] == "Stop" && argv[3] == "--rewake") else { usage() }
+    // Not usage(): Claude Code shows the first line a failed hook writes to stderr, so that line says what is wrong.
+    guard argv.count == 3 || (argv.count == 4 && argv[2] == "Stop" && argv[3] == "--rewake") else {
+        fail("can't read this hook command line: the hooks and the beckon CLI (\(beckonVersion)) are probably different versions")
+    }
     // Headless runs (`claude -p`, the SDK) have nobody at a terminal, and `claude -p` does not exit while an
     // asyncRewake Stop hook is still alive (seen live: it hung until the hook was killed). Stay out of them.
     // Both variables are Claude Code's own; when neither is set the session counts as attended.

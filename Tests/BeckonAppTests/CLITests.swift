@@ -98,3 +98,36 @@ func listeningSocket(at path: String) throws -> Int32 {
         #expect(result.err.contains("--url takes an http or https URL"))
     }
 }
+
+@Suite struct ExitCodes {
+    // Claude Code reads exit 2 from a hook as "block this": a UserPromptSubmit hook that exits 2 refuses the
+    // prompt and a Stop hook keeps the turn from ending. A plugin newer than the CLI, or a Claude Code that drops
+    // the hook's arguments, hands beckon a command line it can't read on every event; if that exits 2, installing
+    // beckon has locked the user out of Claude Code. It is an error, and it must be a non-blocking one.
+    @Test(arguments: [[], ["hook"], ["hook", "Stop", "--later"], ["hook", "Stop", "--rewake", "extra"], ["hook", "UserPromptSubmit", "--rewake"],
+                      ["frobnicate"], ["notify", "--title"], ["notify", "--colour", "red"], ["test", "extra"]])
+    func aCommandLineItCannotReadIsAnErrorButNeverExitTwo(arguments: [String]) throws {
+        let result = try beckon(arguments, stdin: #"{"session_id":"s"}"#, home: try TestHome())
+        #expect(result.status == 1)
+        #expect(!result.err.isEmpty)
+        #expect(result.out.isEmpty)  // a hook's stdout is read as its decision
+    }
+
+    // The one exit 2 beckon means: run as the asyncRewake Stop hook, a reply typed on the Done card comes back
+    // from the app, and exit 2 with the reply on stderr is how Claude Code hands it to the idle session.
+    @Test func aReplyFromTheDoneCardWakesTheSessionWithExitTwo() throws {
+        let home = try TestHome()
+        let app = try listeningSocket(at: home.directory + "/beckon.sock")
+        defer { close(app) }
+        Thread.detachNewThread {
+            let hook = accept(app, nil, nil)
+            var buf = [UInt8](repeating: 0, count: 4096)
+            while read(hook, &buf, buf.count) > 0 {}
+            _ = Array("also run the tests\n".utf8).withUnsafeBytes { write(hook, $0.baseAddress, $0.count) }
+            close(hook)
+        }
+        let result = try beckon(["hook", "Stop", "--rewake"], stdin: #"{"session_id":"s"}"#, home: home)
+        #expect(result.status == 2)
+        #expect(result.err == "also run the tests\n")
+    }
+}
