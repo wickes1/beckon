@@ -137,21 +137,25 @@ private struct WaitingHook {
     }
 
     // The rule that matters most. News has nowhere else to live, so its time being up ends it, as Dismiss does
-    // (a Done card's listening hook is let go). A prompt is a question Claude is still blocked on: a timer must
-    // neither answer it nor drop it. It only leaves the panel, as with ×: the hook is still held, the menu bar
-    // still lists it, and it can be brought back and answered.
-    @Test func whenTimeIsUpNewsIsDismissedButAPromptIsOnlyClosed() {
-        #expect(AutoDismiss.whenTimeIsUp(approval) == .close)
-        #expect(AutoDismiss.whenTimeIsUp(.questions(QuestionsView(questions: [], inputJSON: "{}"))) == .close)
-        #expect(AutoDismiss.whenTimeIsUp(.plan(PlanView(title: "", markdown: "", inputJSON: "{}"))) == .close)
+    // (a Done card's listening hook is let go). Anything still waiting on the user must outlive its time on the
+    // panel. A prompt is a question Claude is blocked on: a timer must neither answer it nor drop it. An "Action
+    // needed" card is a skill waiting for the user to do something elsewhere; dropping it would leave nothing to
+    // say what. Both only leave the panel: a held hook is still held, the menu bar still lists them, and they
+    // can be brought back. The skill's own `beckon dismiss` still takes its card down.
+    @Test func whenTimeIsUpNewsIsDismissedButWhatWaitsOnTheUserIsOnlyHidden() {
+        let action = Kind.action(ActionView(title: "Log in", steps: [], target: nil))
+        #expect(AutoDismiss.whenTimeIsUp(approval) == .hide)
+        #expect(AutoDismiss.whenTimeIsUp(.questions(QuestionsView(questions: [], inputJSON: "{}"))) == .hide)
+        #expect(AutoDismiss.whenTimeIsUp(.plan(PlanView(title: "", markdown: "", inputJSON: "{}"))) == .hide)
+        #expect(AutoDismiss.whenTimeIsUp(action) == .hide)
         #expect(AutoDismiss.whenTimeIsUp(done) == .dismiss)
         #expect(AutoDismiss.whenTimeIsUp(.failed(FailureView(headline: "", error: ""))) == .dismiss)
-        #expect(AutoDismiss.whenTimeIsUp(.action(ActionView(title: "", steps: [], target: nil))) == .dismiss)
 
         let s = store()
         let (stopHook, permissionHook) = (WaitingHook(), WaitingHook())
         s.arrive(item("news", kind: done), connection: stopHook.connection, hookPID: nil)
         s.arrive(item("prompt"), connection: permissionHook.connection, hookPID: nil)
+        arrive(s, item("action", kind: action))
         s.sweep(now: later)
 
         #expect(!s.items.contains { $0.id == "news" })
@@ -159,10 +163,23 @@ private struct WaitingHook {
 
         #expect(s.ordered.isEmpty)
         #expect(s.items.first { $0.id == "prompt" }?.visibility == .closed)
-        #expect(s.pending.map(\.id) == ["prompt"])
+        #expect(s.items.first { $0.id == "action" }?.visibility == .closed)
+        #expect(Set(s.pending.map(\.id)) == ["prompt", "action"])
         #expect(permissionHook.reply() == nil)
         s.reveal("prompt", open: true)
         #expect(s.expanded == "prompt")
+
+        s.remove { $0.callKey == "action" }  // what the skill's `beckon dismiss` does
+        #expect(s.pending.map(\.id) == ["prompt"])
+    }
+
+    // The × on an "Action needed" card is the user saying they are done with it: that still ends it. Only the
+    // timer hides one.
+    @Test func closingAnActionCardByHandStillEndsIt() {
+        let s = store()
+        arrive(s, item("action", kind: .action(ActionView(title: "Log in", steps: [], target: nil))))
+        s.close("action")
+        #expect(s.items.isEmpty)
     }
 
     // Picked from the menu bar, a card is there because the user asked for it. Closing it again under them a few

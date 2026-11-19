@@ -61,7 +61,7 @@ enum Kind {
 /// Where an item is right now. Anything not `.shown` is still pending and still listed in the menu bar.
 enum Visibility {
     case shown
-    case closed      // the user closed the card; Claude keeps waiting in the terminal
+    case closed      // closed with ×, or its time on the panel ran out; Claude keeps waiting
     case suppressed  // the user is looking at that session, so its own dialog is in front of them
 }
 
@@ -235,9 +235,15 @@ final class Store {
 
     /// The × button. A prompt Claude Code is also showing in the terminal stays pending in the menu bar;
     /// anything else has no other home, so closing it ends it.
-    func close(_ id: String, animation: Animation = spring) {
+    func close(_ id: String) {
+        guard let item = items.first(where: { $0.id == id }) else { return }
+        guard item.kind.hasTerminalDialog else { remove(id); return }
+        hide(id)
+    }
+
+    /// Off the panel but still pending: the menu bar lists it, a waiting hook keeps waiting, `reveal` brings it back.
+    private func hide(_ id: String, animation: Animation = spring) {
         guard let i = items.firstIndex(where: { $0.id == id }) else { return }
-        guard items[i].kind.hasTerminalDialog else { remove(id, animation: animation); return }
         withAnimation(animation) {
             items[i].visibility = .closed
             unseen.remove(id)
@@ -359,7 +365,7 @@ final class Store {
             }
             switch AutoDismiss.whenTimeIsUp(item.kind) {
             case .dismiss: remove(id, animation: AutoDismiss.fade)
-            case .close: close(id, animation: AutoDismiss.fade)
+            case .hide: hide(id, animation: AutoDismiss.fade)
             }
         }
     }
@@ -384,13 +390,14 @@ enum AutoDismiss {
         return seconds < 120 ? "After \(Int(seconds)) Seconds" : "After \(Int(seconds / 60)) Minutes"
     }
 
-    enum TimeUp { case dismiss, close }
+    enum TimeUp { case dismiss, hide }
 
-    /// What a card does when its time is up. News (Done, Stopped) and a skill's "Action needed" go the way their
-    /// Dismiss button sends them. A prompt Claude is still waiting on is only closed, as its × does: the hook
-    /// keeps waiting and the item stays in the menu bar, because a timer must never answer for the user or drop
-    /// a question they haven't seen. This is the one place that rule lives.
-    static func whenTimeIsUp(_ kind: Kind) -> TimeUp { kind.hasTerminalDialog ? .close : .dismiss }
+    /// What a card does when its time is up. News (Done, Stopped) goes the way its Dismiss button sends it.
+    /// Anything still waiting on the user is only hidden, as × hides a prompt: a prompt Claude is blocked on, and
+    /// a skill's "Action needed" (the skill is watching for the user to do it). The hook keeps waiting and the
+    /// item stays in the menu bar, because a timer must never answer for the user or drop something they
+    /// haven't seen. This is the one place that rule lives.
+    static func whenTimeIsUp(_ kind: Kind) -> TimeUp { kind.needsYou ? .hide : .dismiss }
 
     /// Slower than every other change on the panel, so a card leaving by itself is seen to leave.
     static let fade = Animation.easeOut(duration: 1.2)
