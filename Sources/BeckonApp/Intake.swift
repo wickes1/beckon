@@ -105,7 +105,13 @@ enum Intake {
             guard let title = payload["title"] as? String, !title.isEmpty else { conn.reply(""); return }
             var target: Target?
             if let tab = (payload["brave_tab"] as? NSNumber)?.intValue { target = .braveTab(tab) }
-            else if let url = payload["url"] as? String, !url.isEmpty { target = .url(url) }
+            else if let url = payload["url"] as? String, !url.isEmpty {
+                guard let web = Target.web(url) else {
+                    AuditLog.note("NOTIFY refused: --url scheme \"\(Words.clip(URL(string: url)?.scheme ?? "none", 40))\" is not http or https")
+                    conn.reply(""); return
+                }
+                target = web
+            }
             let key = notifyKey(session, payload["key"] as? String ?? title)
             store.remove { $0.callKey == key }  // the same notice again replaces the old card
             let view = ActionView(title: title, steps: payload["steps"] as? [String] ?? [], target: target)

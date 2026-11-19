@@ -21,7 +21,7 @@ func usage(asked: Bool = false) -> Never {
       beckon hook <EventName>     run by Claude Code hooks; reads the hook JSON on stdin
       beckon hook Stop --rewake   as an asyncRewake Stop hook: stays in the background and wakes the idle
                                   session (exit 2) with a reply typed on the Done card
-      beckon notify --title <text> [--message <text>] [--step <text>]... [--brave-tab <id> | --url <url>] [--key <name>]
+      beckon notify --title <text> [--message <text>] [--step <text>]... [--brave-tab <id> | --url <http(s) url>] [--key <name>]
                                   show an "Action needed" card for this session (for skills that need the user
                                   to do something, e.g. log in). --key names it so `dismiss` can take it down.
       beckon dismiss --key <name> remove that card once the thing is done
@@ -189,8 +189,13 @@ case "notify", "dismiss":
         guard i + 1 < argv.count else { usage() }
         let value = argv[i + 1]
         switch flag {
-        case "--title", "--message", "--key", "--url":
+        case "--title", "--message", "--key":
             fields.append("\(jsonString(String(flag.dropFirst(2)))):\(jsonString(value))")
+        case "--url":
+            // The app refuses any other scheme, and notify doesn't wait for its answer: say so here.
+            let lower = value.lowercased()
+            guard lower.hasPrefix("http://") || lower.hasPrefix("https://") else { fail("--url takes an http or https URL") }
+            fields.append("\"url\":\(jsonString(value))")
         case "--brave-tab":
             guard let id = Int(value) else { fail("--brave-tab takes the numeric tab id") }
             fields.append("\"brave_tab\":\(id)")

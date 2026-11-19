@@ -22,6 +22,13 @@ enum Target: Equatable {
     case braveTab(Int)  // Chromium tab id, the number the claude-in-chrome tools report
     case url(String)
 
+    /// A `beckon notify --url` target. Web pages only: the card's button hands the URL to NSWorkspace.open, which
+    /// opens a file: path or another app's custom scheme just as readily, behind a button that says "Browser".
+    static func web(_ text: String) -> Target? {
+        guard let url = URL(string: text), url.isWeb else { return nil }
+        return .url(text)
+    }
+
     static let brave = "com.brave.Browser"
     var bundleID: String? { if case .braveTab = self { return Target.brave }; return nil }
     var appName: String { if case .braveTab = self { return "Brave" }; return "Browser" }
@@ -31,6 +38,11 @@ enum Target: Equatable {
         case .url(let u): return u
         }
     }
+}
+
+extension URL {
+    /// http or https with a host: the only kind of link beckon opens.
+    var isWeb: Bool { ["http", "https"].contains(scheme?.lowercased() ?? "") && !(host() ?? "").isEmpty }
 }
 
 enum Apps {

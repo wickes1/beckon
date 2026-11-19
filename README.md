@@ -18,7 +18,7 @@ A floating panel for Claude Code on macOS. When Claude Code needs you, answer on
 
 - **Answer on the card.** Approve a tool call (or add a "don't ask again" rule), answer AskUserQuestion, approve or revise a plan, reply to a finished turn. The terminal dialog stays live; whichever you answer first wins.
 - **Land on the exact place.** Click a card to reach the VS Code window and terminal, the Ghostty tab or the Terminal.app tab where Claude is waiting, even when it is buried under other windows.
-- **Get sent where you're needed.** A script or Claude Code skill runs `beckon notify` to point you at a Brave tab or any URL — a web page, or an app via `file:///Applications/….app` — and `beckon dismiss` once it sees you're done.
+- **Get sent where you're needed.** A script or Claude Code skill runs `beckon notify` to point you at a Brave tab or a web page, and `beckon dismiss` once it sees you're done.
 - **Stays out of your way.** The panel never takes the keyboard unless you click a field, shows nothing for the session you're already looking at, and lets phone pushes through only while the screen is locked.
 - **Safe by default.** Decisions go through Claude Code's own permission system; beckon has no allow rules of its own. If the app isn't running, every hook exits at once and Claude Code behaves as if beckon weren't installed.
 - **Light.** The hook costs 2.8 ms at p90 on top of starting a process, 5 ms in all (measured), with no runtime dependencies.
@@ -119,7 +119,7 @@ Cards appear, and can be answered, for a session in any terminal. What differs b
 | VS Code integrated terminal, Claude Code side panel | the exact window and terminal (needs the extension) |
 | Ghostty | the exact tab |
 | Brave | the exact tab, for `beckon notify --brave-tab` |
-| Any URL, for `beckon notify --url` | whatever macOS opens it with: a web page in the default browser, `file:///Applications/<App>.app` starts or brings up that app |
+| A web page, for `beckon notify --url` | the page in the default browser. Only `http` and `https` URLs are accepted |
 | Terminal.app | the exact tab — written, not yet run |
 | Cursor, VSCodium, VS Code Insiders | the exact window and terminal, as VS Code (needs the extension) — written, not yet run |
 | Any other terminal (iTerm2, Warp, kitty, WezTerm, …) | the app, brought forward, not the tab — written, not yet run. A card for a session there is also held back whenever that app is in front, whichever tab you are on |
@@ -189,7 +189,7 @@ beckon dismiss --key bank-login
 |---|---|---|
 | `beckon doctor` | | checks the app, its signature, the hooks, the presence file, VS Code windows and Automation permissions; exits 1 if a check fails |
 | `beckon test` | | puts a sample card on the panel, wherever you are looking; exits 1 if the app isn't running |
-| `beckon notify` | `--title <text>` (required), `--message <text>`, `--step <text>` (repeatable), `--brave-tab <id>` or `--url <url>`, `--key <name>` | shows an "Action needed" card for the current session; exits 1 if the app isn't running, so the caller can fall back |
+| `beckon notify` | `--title <text>` (required), `--message <text>`, `--step <text>` (repeatable), `--brave-tab <id>` or `--url <http or https url>`, `--key <name>` | shows an "Action needed" card for the current session; exits 1 if the app isn't running, so the caller can fall back |
 | `beckon dismiss` | `--key <name>` (required) | takes that card down |
 | `beckon hook <Event>` | `--rewake` (Stop only) | run by Claude Code's hooks; reads the hook JSON on stdin and always exits 0 when the app can't be reached |
 | `beckon --version` | | prints the version |
