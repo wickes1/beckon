@@ -511,6 +511,34 @@ struct CardShell: View {
         }
         .frame(width: 400, alignment: .topLeading)
         .glassCard(radius: open ? 18 : 14)
+        // Drawn over the card's bottom edge, so it takes no room: the card is the same size with or without it.
+        .overlay(alignment: .bottom) {
+            if let since = store.countdowns[item.id], let stay = store.stay {
+                CountdownBar(since: since, stay: stay, color: kindColor(item.kind))
+                    .frame(maxHeight: .infinity, alignment: .bottom)
+                    .clipShape(RoundedRectangle(cornerRadius: open ? 18 : 14, style: .continuous))
+                    .allowsHitTesting(false)
+                    .transition(.opacity)
+            }
+        }
+        .onHover { if $0 { store.hovered(item.id) } }
+    }
+}
+
+/// How much of a card's time is left before it leaves by itself, as a line along its bottom edge that shrinks
+/// towards the left. The same colour as the card's kind mark.
+struct CountdownBar: View {
+    let since: Date
+    let stay: TimeInterval
+    let color: Color
+    var body: some View {
+        // Drawn from the clock, not run as an animation: a tick per pixel the bar loses (every frame for a 10 s
+        // stay, a few a second for 5 min) instead of the panel redrawing at full rate for the whole stay. It also
+        // means nothing that switches animations off can stop it.
+        TimelineView(.periodic(from: since, by: max(1.0 / 60, stay / 800))) { ctx in
+            Rectangle().fill(color.opacity(0.8)).frame(height: 2)
+                .scaleEffect(x: max(0, 1 - ctx.date.timeIntervalSince(since) / stay), y: 1, anchor: .leading)
+        }
     }
 }
 
@@ -527,7 +555,7 @@ struct StackView: View {
     let onFrames: ([CGRect]) -> Void
     var body: some View {
         let list = store.ordered
-        let shown = store.showAll ? list : Array(list.prefix(Store.visibleRows + 1))
+        let shown = store.onScreen
         VStack(alignment: .trailing, spacing: 8) {
             ForEach(shown) { item in
                 CardShell(item: item, open: item.id == store.expanded)
@@ -541,7 +569,7 @@ struct StackView: View {
                     .background(Capsule().fill(.ultraThinMaterial))
                     .outline(Capsule(), .white.opacity(0.12))
                     .contentShape(Capsule())
-                    .onTapGesture { withAnimation(spring) { store.showAll.toggle() } }
+                    .onTapGesture { store.toggleShowAll() }
                     .background(reportFrame())
             }
             Spacer(minLength: 0)
