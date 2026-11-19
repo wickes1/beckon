@@ -90,17 +90,33 @@ final class Server {
         }
     }
 
-    private static func readToEOF(_ fd: Int32) -> Data {
-        // A hook payload is small; cap reads so a misbehaving client can't hold a thread forever.
-        var timeout = timeval(tv_sec: 2, tv_usec: 0)
-        setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
+    /// A hook writes one small envelope in one go and hangs up its sending side. A client that does otherwise
+    /// must not hold a thread or grow a buffer for as long as it likes: a silence of `idle` ends the request
+    /// where it stands, and one that is still coming in after `total`, or is larger than `limit`, is dropped
+    /// (empty data, which Intake answers like any other request it can't read).
+    static func readToEOF(_ fd: Int32, limit: Int = 16 << 20, idle: TimeInterval = 2, total: TimeInterval = 5) -> Data {
+        let deadline = ProcessInfo.processInfo.systemUptime + total
         var out = Data()
         var buf = [UInt8](repeating: 0, count: 64 * 1024)
         while true {
+            let left = min(idle, deadline - ProcessInfo.processInfo.systemUptime)
+            guard left > 0 else { return dropped("still arriving after \(total) s") }
+            // At least a millisecond: a zero timeval would mean no timeout at all.
+            let micros = max(1000, Int(left * 1_000_000))
+            var timeout = timeval(tv_sec: micros / 1_000_000, tv_usec: Int32(micros % 1_000_000))
+            setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
             let n = read(fd, &buf, buf.count)
-            if n > 0 { out.append(buf, count: n) } else if n < 0 && errno == EINTR { continue } else { break }
+            if n > 0 { out.append(buf, count: n) } else if n < 0 && errno == EINTR { continue }
+            else if n < 0 && errno == EAGAIN && left < idle { continue }  // the deadline cut this wait short, not a silence
+            else { break }
+            guard out.count <= limit else { return dropped("larger than \(limit) bytes") }
         }
         return out
+    }
+
+    private static func dropped(_ why: String) -> Data {
+        AuditLog.note("SERVER dropped a request: \(why)")
+        return Data()
     }
 
     private func posix(_ what: String) -> NSError {
