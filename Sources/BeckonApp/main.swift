@@ -90,6 +90,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if store.pointerInside != over {
             store.pointerInside = over
             store.pointerEnteredAt = over ? Date() : nil
+            if !over { store.sweep() }  // a card whose time ran out while the pointer was on the panel can go now
         }
     }
 
@@ -162,6 +163,7 @@ extension AppDelegate {
         login.state = SMAppService.mainApp.status == .enabled ? .on : .off
         menu.addItem(login)
         menu.addItem(soundsItem())
+        menu.addItem(dismissItem())
         menu.addItem(NSMenuItem(title: "Quit beckon", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
     }
 
@@ -205,6 +207,27 @@ extension AppDelegate {
         let item = NSMenuItem(title: Chime.muted ? "Sounds: Muted" : "Sounds", action: nil, keyEquivalent: "")
         item.submenu = sub
         return item
+    }
+
+    // Dismiss Cards ▸  Never · After 10 Seconds · … : how long a card stays before it leaves by itself.
+    func dismissItem() -> NSMenuItem {
+        let sub = NSMenu()
+        for seconds in [nil] + AutoDismiss.choices.map(Optional.some) {
+            let entry = NSMenuItem(title: AutoDismiss.title(seconds), action: #selector(pickStay(_:)), keyEquivalent: "")
+            entry.target = self
+            entry.representedObject = seconds
+            entry.state = seconds == AutoDismiss.after ? .on : .off
+            sub.addItem(entry)
+            if seconds == nil { sub.addItem(.separator()) }
+        }
+        let item = NSMenuItem(title: "Dismiss Cards", action: nil, keyEquivalent: "")
+        item.submenu = sub
+        return item
+    }
+
+    @objc func pickStay(_ sender: NSMenuItem) {
+        AutoDismiss.after = sender.representedObject as? TimeInterval
+        store.stay = AutoDismiss.after
     }
 
     @objc func toggleMute() { Chime.muted.toggle() }
