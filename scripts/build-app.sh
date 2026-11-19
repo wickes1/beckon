@@ -32,6 +32,8 @@ mkdir -p "$APP/Contents/Resources"
 cp vscode/beckon.vsix "$APP/Contents/Resources/beckon.vsix"
 # Generated from Resources/AppIcon.svg (rsvg-convert + iconutil); committed so a build needs neither.
 cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
+# The MIT notice has to travel with every copy, and an installed app has no checkout beside it.
+cp LICENSE "$APP/Contents/Resources/LICENSE"
 codesign --force --sign "$IDENTITY" "$APP/Contents/MacOS/beckon"
 codesign --force --sign "$IDENTITY" "$APP"
 codesign --verify --strict "$APP"

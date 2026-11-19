@@ -44,6 +44,8 @@ scripts/build-vscode.sh
 mkdir -p "$APP/Contents/Resources"
 cp vscode/beckon.vsix "$APP/Contents/Resources/beckon.vsix"
 cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
+# The MIT notice has to travel with every copy, and an installed app has no checkout beside it.
+cp LICENSE "$APP/Contents/Resources/LICENSE"
 
 # Hardened runtime + secure timestamp are what notarization requires; a self-signed identity can't get a timestamp.
 SIGN=(codesign --force --sign "$IDENTITY")
