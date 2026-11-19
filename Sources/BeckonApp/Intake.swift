@@ -94,6 +94,8 @@ enum Intake {
 
         case "SubagentStop":
             conn.reply("")
+            // The main agent's cards carry no agent id either: an event without one would match them all.
+            guard let agent else { return }
             store.remove { $0.sessionID == session && $0.agentID == agent }
 
         case "SessionEnd":
