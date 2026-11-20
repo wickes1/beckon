@@ -117,7 +117,12 @@ final class Server {
             setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
             let n = read(fd, &buf, buf.count)
             if n > 0 { out.append(buf, count: n) } else if n < 0 && errno == EINTR { continue }
-            else if n < 0 && errno == EAGAIN && left < idle { continue }  // the deadline cut this wait short, not a silence
+            else if n < 0 && errno == EAGAIN {
+                if left < idle { continue }  // the deadline cut this wait short, not a silence
+                // A hook hangs up its sending side straight after its one write: a silence means it stalled part way.
+                AuditLog.note("SERVER request went quiet for \(Int(idle)) s after \(out.count) bytes: handled as it stands")
+                break
+            }
             else { break }
             guard out.count <= limit else { return dropped("larger than \(limit) bytes") }
         }

@@ -41,6 +41,18 @@ private func pair() -> (client: Int32, server: Int32) {
         #expect(data.isEmpty)
         #expect(Date().timeIntervalSince(started) < 1.5)
     }
+
+    // A client that stalls part way is handled with what it sent. That half envelope can't be read, and without a
+    // line saying the request went quiet nothing would tell why its card never came.
+    @Test func aRequestThatGoesQuietIsHandledAsItStandsAndLogged() throws {
+        let (client, server) = pair()
+        defer { close(client); close(server) }
+        let before = (try? Data(contentsOf: URL(fileURLWithPath: AuditLog.path)))?.count ?? 0
+        _ = Array(#"{"v":1"#.utf8).withUnsafeBytes { write(client, $0.baseAddress, $0.count) }
+        #expect(Server.readToEOF(server, idle: 0.2, total: 2).count == 6)
+        let added = String(decoding: try Data(contentsOf: URL(fileURLWithPath: AuditLog.path)).dropFirst(before), as: UTF8.self)
+        #expect(added.contains("SERVER request went quiet for 0 s after 6 bytes"))
+    }
 }
 
 @Suite struct AcceptErrors {

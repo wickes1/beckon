@@ -79,6 +79,15 @@ private func envelope(_ event: String, _ payload: [String: Any]) -> Data {
         #expect(view.target == .url("https://example.com/login"))
     }
 
+    // A request the app can't read used to be answered and forgotten. Its card never came, and the log had nothing.
+    @Test func anUnreadableRequestIsLogged() throws {
+        let before = (try? Data(contentsOf: URL(fileURLWithPath: AuditLog.path)))?.count ?? 0
+        let cut = Data(#"{"v":1,"event":"Notify","pay"#.utf8)
+        Intake.handle(cut, Connection(fd: -1))
+        let added = String(decoding: try Data(contentsOf: URL(fileURLWithPath: AuditLog.path)).dropFirst(before), as: UTF8.self)
+        #expect(added.contains("INTAKE unreadable request (\(cut.count) bytes)"))
+    }
+
     private func prompt(_ id: String, session: String, agent: String?) -> Item {
         Item(id: id, sessionID: session, agentID: agent, callKey: id, arrived: Date(), project: "p", appName: "VS Code", bundleID: nil,
              title: "t", context: "", kind: .permission(PermissionFormat.view(toolName: "Bash", input: [:], suggestions: [])))

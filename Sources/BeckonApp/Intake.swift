@@ -21,7 +21,12 @@ enum Intake {
     static func handle(_ data: Data, _ conn: Connection) {
         Presence.restoreFile()
         guard let env = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let event = env["event"] as? String else { conn.reply(""); return }
+              let event = env["event"] as? String else {
+            // An empty one the server cut off has its line already. Anything else is an envelope this app can't read
+            // (a CLI of another version, a client that stalled part way), and whatever card it carried never comes.
+            if !data.isEmpty { AuditLog.note("INTAKE unreadable request (\(data.count) bytes): nothing shown") }
+            conn.reply(""); return
+        }
         conn.expectsReply = env["wait"] as? Bool ?? false
         if event == "Doctor" { Doctor.report { conn.reply($0) }; return }
         guard let payload = env["payload"] as? [String: Any] else { conn.reply(""); return }
