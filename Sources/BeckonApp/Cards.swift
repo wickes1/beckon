@@ -558,24 +558,30 @@ struct CountdownTicks: TimelineSchedule {
     }
 }
 
-struct CardFrames: PreferenceKey {
-    static let defaultValue: [CGRect] = []
-    static func reduce(value: inout [CGRect], nextValue: () -> [CGRect]) { value += nextValue() }
+/// Where a card is on the panel (id nil: the "+N more" button), so the app can tell what the pointer is over.
+struct CardFrame: Equatable {
+    let id: String?
+    let rect: CGRect
 }
 
-private func reportFrame() -> some View {
-    GeometryReader { g in Color.clear.preference(key: CardFrames.self, value: [g.frame(in: .global)]) }
+struct CardFrames: PreferenceKey {
+    static let defaultValue: [CardFrame] = []
+    static func reduce(value: inout [CardFrame], nextValue: () -> [CardFrame]) { value += nextValue() }
+}
+
+private func reportFrame(_ id: String? = nil) -> some View {
+    GeometryReader { g in Color.clear.preference(key: CardFrames.self, value: [CardFrame(id: id, rect: g.frame(in: .global))]) }
 }
 
 struct StackView: View {
-    let onFrames: ([CGRect]) -> Void
+    let onFrames: ([CardFrame]) -> Void
     var body: some View {
         let list = store.ordered
         let shown = store.onScreen
         VStack(alignment: .trailing, spacing: 8) {
             ForEach(shown) { item in
                 CardShell(item: item, open: item.id == store.expanded)
-                    .background(reportFrame())
+                    .background(reportFrame(item.id))
                     .transition(.asymmetric(insertion: .move(edge: .top).combined(with: .opacity), removal: .opacity))
             }
             if list.count > Store.visibleRows + 1 {

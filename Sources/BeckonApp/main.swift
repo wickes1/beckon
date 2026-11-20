@@ -77,7 +77,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var panel: KeyPanel!
     var statusItem: NSStatusItem!
     var server: Server!
-    var cardFrames: [CGRect] = []
+    var cardFrames: [CardFrame] = []
     var receiving = true  // false once the server has stopped for good
 
     /// The number beside the icon counts what is waiting; a "!" before it says no new card can come.
@@ -92,12 +92,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         guard let content = panel.contentView else { return }
         let p = panel.mouseLocationOutsideOfEventStream
         let flipped = CGPoint(x: p.x, y: content.bounds.height - p.y)
-        let over = cardFrames.contains { $0.insetBy(dx: -10, dy: -10).contains(flipped) }
+        let over = cardFrames.contains { $0.rect.insetBy(dx: -10, dy: -10).contains(flipped) }
         if panel.ignoresMouseEvents == over { panel.ignoresMouseEvents = !over }
         if store.pointerInside != over {
             store.pointerInside = over
             store.pointerEnteredAt = over ? Date() : nil
         }
+        // SwiftUI reports hover when the pointer moves, so a card that moves under a pointer standing still (a new
+        // card pushed it down, the open one grew) kept counting down while it was being read. This runs on every new
+        // layout as well as every move.
+        if let id = cardFrames.first(where: { $0.id != nil && $0.rect.contains(flipped) })?.id { store.hovered(id) }
     }
 
     func applicationDidFinishLaunching(_ n: Notification) {
