@@ -1,4 +1,5 @@
 import AppKit
+import BeckonCore
 import Foundation
 
 /// What beckon remembers about a Claude Code session between hook events.
@@ -109,7 +110,8 @@ enum Intake {
             if let tab = (payload["brave_tab"] as? NSNumber)?.intValue { target = .braveTab(tab) }
             else if let url = payload["url"] as? String, !url.isEmpty {
                 guard let web = Target.web(url) else {
-                    AuditLog.note("NOTIFY refused: --url scheme \"\(Words.clip(URL(string: url)?.scheme ?? "none", 40))\" is not http or https")
+                    // The reason, not the URL: a login link can carry a token.
+                    AuditLog.note("NOTIFY refused: --url \(webURLProblem(url) ?? "is not a URL macOS can open")")
                     conn.reply(""); return
                 }
                 target = web

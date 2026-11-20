@@ -24,8 +24,9 @@ enum Target: Equatable {
 
     /// A `beckon notify --url` target. Web pages only: the card's button hands the URL to NSWorkspace.open, which
     /// opens a file: path or another app's custom scheme just as readily, behind a button that says "Browser".
+    /// The rule is webURLProblem, the one the CLI checks before it sends; URL(string:) is what the button opens.
     static func web(_ text: String) -> Target? {
-        guard let url = URL(string: text), url.isWeb else { return nil }
+        guard webURLProblem(text) == nil, let url = URL(string: text), url.isWeb else { return nil }
         return .url(text)
     }
 

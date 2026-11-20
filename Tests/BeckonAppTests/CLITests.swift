@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+@testable import BeckonApp
 
 // The hook CLI is top-level code, so these run the built binary. Always with an empty environment and a HOME of
 // its own: the CLI finds the app's socket under HOME, and a test must never reach the real app, nor be taken for
@@ -96,6 +97,46 @@ func listeningSocket(at path: String) throws -> Int32 {
         let result = try beckon(["notify", "--title", "Log in", "--url", "file:///Applications/Calculator.app"], home: home)
         #expect(result.status == 1)
         #expect(result.err.contains("--url takes an http or https URL"))
+    }
+
+    // The same with the app up, which is when it matters: a skill building "https://$HOST/login" with $HOST empty
+    // must hear from the CLI, not get exit 0 and wait for a login the user was never asked for.
+    @Test(arguments: ["https://", "http://", "https:///login", "http://:8080/x", "https://exa mple.com"])
+    func aURLTheAppWouldRefuseFailsInTheCLI(url: String) throws {
+        let home = try TestHome()
+        let app = try listeningSocket(at: home.directory + "/beckon.sock")
+        defer { close(app) }
+        #expect(Target.web(url) == nil)
+        let result = try beckon(["notify", "--title", "Log in", "--url", url], home: home)
+        #expect(result.status == 1)
+        #expect(result.err.contains("--url takes an http or https URL with a host"))
+    }
+
+    // The app reads the link from "url". Under any other key the card still comes, without its Open in Browser button.
+    @Test func theURLReachesTheAppUnderTheKeyItReads() throws {
+        let home = try TestHome()
+        let app = try listeningSocket(at: home.directory + "/beckon.sock")
+        defer { close(app) }
+        final class Received: @unchecked Sendable { var data = Data() }
+        let received = Received()
+        let done = DispatchSemaphore(value: 0)
+        Thread.detachNewThread {
+            let c = accept(app, nil, nil)
+            var buf = [UInt8](repeating: 0, count: 4096)
+            while true {
+                let n = read(c, &buf, buf.count)
+                if n <= 0 { break }
+                received.data.append(buf, count: n)
+            }
+            close(c)
+            done.signal()
+        }
+        let result = try beckon(["notify", "--title", "Log in", "--url", "https://example.com/login"], home: home)
+        #expect(result.status == 0)
+        done.wait()
+        let envelope = try #require(try JSONSerialization.jsonObject(with: received.data) as? [String: Any])
+        let payload = try #require(envelope["payload"] as? [String: Any])
+        #expect(payload["url"] as? String == "https://example.com/login")
     }
 }
 

@@ -201,9 +201,8 @@ case "notify", "dismiss":
         case "--title", "--message", "--key":
             fields.append("\(jsonString(String(flag.dropFirst(2)))):\(jsonString(value))")
         case "--url":
-            // The app refuses any other scheme, and notify doesn't wait for its answer: say so here.
-            let lower = value.lowercased()
-            guard lower.hasPrefix("http://") || lower.hasPrefix("https://") else { fail("--url takes an http or https URL") }
+            // The app refuses anything else, and notify doesn't wait for its answer: say so here, by the app's own rule.
+            if let why = webURLProblem(value) { fail("--url takes an http or https URL with a host, and \"\(value)\" \(why)") }
             fields.append("\"url\":\(jsonString(value))")
         case "--brave-tab":
             guard let id = Int(value) else { fail("--brave-tab takes the numeric tab id") }

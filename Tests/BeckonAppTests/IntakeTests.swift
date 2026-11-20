@@ -1,6 +1,33 @@
+import BeckonCore
 import Foundation
 import Testing
 @testable import BeckonApp
+
+// The CLI checks `notify --url` with webURLProblem and exits; the app checks Target.web after the CLI has gone.
+// Any URL the CLI lets through and the app refuses is a card that silently never appears.
+@Suite struct WebURLRule {
+    @Test func whatTheCLIAcceptsTheAppOpens() {
+        let ordinary = ["https://example.com/login?next=/a#top", "HTTP://example.com", "https://user:pw@example.com:8443/a?b#c",
+                        "http://[::1]:8080/", "http://127.0.0.1:8080", "https://example.com/über", "https://example.com/a b", "https://exa_mple.com"]
+        for url in ordinary {
+            #expect(webURLProblem(url) == nil, "\(url)")
+            #expect(Target.web(url) == .url(url), "\(url)")
+        }
+        // Each one passed the CLI's old prefix check and was refused by the app.
+        for url in ["https://", "http://", "https:///login", "http://:8080/x", "https://@/x", "https://exa mple.com", "https://example.com:abc/", "https://[::1"] {
+            #expect(webURLProblem(url) != nil, "\(url)")
+            #expect(Target.web(url) == nil, "\(url)")
+        }
+        // Hosts Foundation reads but this rule doesn't: refused on both sides, and out loud in the CLI.
+        for url in ["https://bücher.de", "https://a!b.com", "https://[v1.fe]/"] {
+            #expect(webURLProblem(url) != nil, "\(url)")
+            #expect(URL(string: url)?.isWeb == true, "\(url)")
+        }
+        #expect(webURLProblem("https:///login") == "has no host")
+        #expect(webURLProblem("file:///etc/hosts") == "has the scheme \"file\", not http or https")
+        #expect(webURLProblem("example.com") == "is not a URL")
+    }
+}
 
 private func envelope(_ event: String, _ payload: [String: Any]) -> Data {
     try! JSONSerialization.data(withJSONObject: ["v": 1, "event": event, "wait": false, "payload": payload])
@@ -29,7 +56,18 @@ private func envelope(_ event: String, _ payload: [String: Any]) -> Data {
         Intake.handle(envelope("Notify", ["title": scheme, "url": "\(scheme)://x"]), Connection(fd: -1))
         #expect(!store.items.contains { $0.summary == scheme })
         let log = try String(contentsOfFile: AuditLog.path, encoding: .utf8)
-        #expect(log.contains("NOTIFY refused: --url scheme \"\(scheme)\""))
+        #expect(log.contains("NOTIFY refused: --url has the scheme \"\(scheme)\""))
+    }
+
+    // The line has to say what was wrong. "https:///login" (a skill's empty $HOST) was logged as a scheme that
+    // "is not http or https", which sends whoever reads it after the wrong thing.
+    @Test func aRefusedNotifyLogsTheRealReason() throws {
+        let before = (try? Data(contentsOf: URL(fileURLWithPath: AuditLog.path)))?.count ?? 0
+        let title = "no-host-\(UUID().uuidString)"
+        Intake.handle(envelope("Notify", ["title": title, "url": "https:///login"]), Connection(fd: -1))
+        #expect(!store.items.contains { $0.summary == title })
+        let added = try Data(contentsOf: URL(fileURLWithPath: AuditLog.path)).dropFirst(before)
+        #expect(String(decoding: added, as: UTF8.self).contains("NOTIFY refused: --url has no host"))
     }
 
     @Test func notifyWithAWebPageShowsItsCard() {

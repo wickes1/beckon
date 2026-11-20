@@ -11,7 +11,7 @@ let package = Package(
         .executableTarget(name: "beckon", dependencies: ["BeckonCore"]),
         // The menu-bar agent that owns the socket and the panel.
         .executableTarget(name: "BeckonApp", dependencies: ["BeckonCore"]),
-        .testTarget(name: "BeckonAppTests", dependencies: ["BeckonApp"]),
+        .testTarget(name: "BeckonAppTests", dependencies: ["BeckonApp", "BeckonCore"]),
     ],
     swiftLanguageModes: [.v5]
 )
