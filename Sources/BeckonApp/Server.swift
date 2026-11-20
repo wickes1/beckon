@@ -31,6 +31,8 @@ final class Connection {
 final class Server {
     private var listenFD: Int32 = -1
     private let onRequest: (Data, Connection) -> Void
+    /// Called on the main queue if the server stops for good, so the app can say so: from then on no card comes.
+    var onStop: (() -> Void)?
 
     init(onRequest: @escaping (Data, Connection) -> Void) { self.onRequest = onRequest }
 
@@ -70,11 +72,15 @@ final class Server {
                 // Logged once per run of the same error: with the descriptor table full it recurs ten times a second.
                 if code != lastError { AuditLog.note("SERVER accept failed: \(String(cString: strerror(code))) (errno \(code))") }
                 lastError = code
-                // Out of descriptors, or a client that hung up before it was accepted: both pass by themselves.
                 // The pause keeps a full table from spinning this thread until a descriptor frees up.
-                if code == EMFILE || code == ENFILE || code == ECONNABORTED { usleep(100_000); continue }
-                // Anything else means the listening socket is gone, and with this thread goes every card.
+                if Self.acceptErrorPasses(code) { usleep(100_000); continue }
+                // Anything else means the listening socket is gone, and with this thread goes every card. Close and
+                // remove it, so a hook fails to connect and falls back to the terminal at once, rather than waiting in
+                // a backlog nobody reads until Claude Code's hook timeout.
+                close(listenFD)
+                unlink(BeckonPaths.socket)
                 AuditLog.note("SERVER stopped accepting: hooks fall back to the terminal until beckon is restarted")
+                DispatchQueue.main.async { [weak self] in self?.onStop?() }
                 return
             }
             lastError = 0
@@ -89,6 +95,10 @@ final class Server {
             }
         }
     }
+
+    /// Errors accept(2) gets over by itself: out of descriptors, memory or buffers, or a client that hung up before
+    /// it was accepted. Taken for a dead socket, any one of them ended the server for the rest of the run.
+    static func acceptErrorPasses(_ code: Int32) -> Bool { [EMFILE, ENFILE, ENOMEM, ENOBUFS, ECONNABORTED].contains(code) }
 
     /// A hook writes one small envelope in one go and hangs up its sending side. A client that does otherwise
     /// must not hold a thread or grow a buffer for as long as it likes: a silence of `idle` ends the request

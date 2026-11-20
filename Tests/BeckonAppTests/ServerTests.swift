@@ -42,3 +42,13 @@ private func pair() -> (client: Int32, server: Int32) {
         #expect(Date().timeIntervalSince(started) < 1.5)
     }
 }
+
+@Suite struct AcceptErrors {
+    // A full descriptor table or a moment's memory pressure passes; the socket dying doesn't. Taking a passing error
+    // for a dead socket ends the server, and with it every card until beckon is restarted. Taking a dead socket for a
+    // passing error would spin on it for good.
+    @Test func onlyErrorsThatPassAreRetried() {
+        for code in [EMFILE, ENFILE, ENOMEM, ENOBUFS, ECONNABORTED] { #expect(Server.acceptErrorPasses(code), "errno \(code)") }
+        for code in [EBADF, EINVAL, ENOTSOCK, EOPNOTSUPP] { #expect(!Server.acceptErrorPasses(code), "errno \(code)") }
+    }
+}

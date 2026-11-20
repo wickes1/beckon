@@ -78,6 +78,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var statusItem: NSStatusItem!
     var server: Server!
     var cardFrames: [CGRect] = []
+    var receiving = true  // false once the server has stopped for good
+
+    /// The number beside the icon counts what is waiting; a "!" before it says no new card can come.
+    func showStatus() {
+        let n = store.pending.count
+        statusItem.button?.title = (receiving ? "" : "!") + (n > 0 ? "\(n)" : "")
+    }
 
     // A tall fixed transparent column, so cards animate without window resizes.
     // Clicks pass through everywhere except over a card.
@@ -120,12 +127,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.delegate = self
         statusItem.menu = menu
         store.onChange = { [weak self] in
-            let n = store.pending.count
-            self?.statusItem.button?.title = n > 0 ? "\(n)" : ""
+            self?.showStatus()
             // After SwiftUI has dropped the answered card's text field.
             DispatchQueue.main.async { self?.panel.yieldKeyIfIdle() }
         }
         server = Server(onRequest: Intake.handle)
+        // As loud as failing to open the socket at launch: otherwise the icon sits there and no card ever comes.
+        server.onStop = { [weak self] in
+            self?.receiving = false
+            self?.showStatus()
+        }
         do {
             try server.start()
         } catch {
@@ -145,6 +156,10 @@ extension AppDelegate {
     // back because their session is in front. Picking one puts it on the panel, open.
     func menuNeedsUpdate(_ menu: NSMenu) {
         menu.removeAllItems()
+        if !receiving {
+            menu.addItem(NSMenuItem(title: "beckon stopped receiving hooks: quit it and open it again", action: nil, keyEquivalent: ""))
+            menu.addItem(.separator())
+        }
         let waiting = store.pending
         if waiting.isEmpty {
             menu.addItem(NSMenuItem(title: "Nothing waiting", action: nil, keyEquivalent: ""))
