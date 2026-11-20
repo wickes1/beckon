@@ -35,7 +35,47 @@ enum Doctor {
         case .unknown: note("signature could not be read")
         }
 
-        let settings = (try? JSONSerialization.jsonObject(with: Data(contentsOf: URL(fileURLWithPath: NSHomeDirectory() + "/.claude/settings.json")))) as? [String: Any] ?? [:]
+        for check in settingsChecks(file: NSHomeDirectory() + "/.claude/settings.json", fromSource: fromSource, pluginInstalled: pluginInstalled) {
+            switch check {
+            case .ok(let s): ok(s)
+            case .bad(let s): bad(s)
+            case .note(let s): note(s)
+            }
+        }
+
+        if vscodeWindows > 0 {
+            note("VS Code extension: \(vscodeWindows) window(s) connected")
+        } else if let vsix = Bundle.main.path(forResource: "beckon", ofType: "vsix") {
+            // The bundled copy is the only one a Homebrew install has.
+            note("VS Code extension: no window connected — clicks only bring VS Code forward. Install it once per VS Code profile: code --install-extension \"\(vsix)\"")
+        } else {
+            note("VS Code extension: no window connected — clicks only bring VS Code forward (scripts/build-vscode.sh --install)")
+        }
+        note("Automation — " + automation.joined(separator: " · ") + " (\"not asked yet\" is granted the first time you click through to that app)")
+        note("open at login: \(SMAppService.mainApp.status == .enabled ? "on" : "off") (menu bar icon → Open at Login)")
+        note("\(store.pending.count) waiting, \(Intake.sessions.count) session(s) seen since launch")
+        return (failed ? "fail" : "ok") + "\n" + lines.joined(separator: "\n") + "\n"
+    }
+
+    enum Check: Equatable { case ok(String), bad(String), note(String) }
+
+    /// The part of the report read from ~/.claude/settings.json: the hooks and the presence file. The file and the
+    /// install come in as arguments so a test can hand it any of them.
+    static func settingsChecks(file: String, fromSource: Bool, pluginInstalled: () -> Bool) -> [Check] {
+        var checks: [Check] = []
+        func ok(_ s: String) { checks.append(.ok(s)) }
+        func bad(_ s: String) { checks.append(.bad(s)) }
+        func note(_ s: String) { checks.append(.note(s)) }
+
+        let settings: [String: Any]
+        do {
+            settings = try readSettings(file)
+        } catch {
+            // Read as empty, a file with one comma missing had doctor report no hooks and no presence file, and send
+            // the user off to fix things in a file beckon never managed to read.
+            bad("~/.claude/settings.json can't be read (\(error.localizedDescription)), so its hooks and env weren't checked: fix the file")
+            return checks
+        }
         let hooks = settings["hooks"] as? [String: Any] ?? [:]
         // What to tell the user to run depends on how they installed: only a checkout has scripts/hooks.sh.
         let plugin = "claude plugin marketplace add wickes1/beckon, then claude plugin install beckon@beckon"
@@ -67,19 +107,16 @@ enum Doctor {
         } else {
             note("presence file not wired: Claude Code doesn't know when you're at the Mac — add \"CLAUDE_CLIENT_PRESENCE_FILE\": \"\(BeckonPaths.presenceFile)\" to the env block of ~/.claude/settings.json" + (fromSource ? " (scripts/hooks.sh install does it)" : ""))
         }
+        return checks
+    }
 
-        if vscodeWindows > 0 {
-            note("VS Code extension: \(vscodeWindows) window(s) connected")
-        } else if let vsix = Bundle.main.path(forResource: "beckon", ofType: "vsix") {
-            // The bundled copy is the only one a Homebrew install has.
-            note("VS Code extension: no window connected — clicks only bring VS Code forward. Install it once per VS Code profile: code --install-extension \"\(vsix)\"")
-        } else {
-            note("VS Code extension: no window connected — clicks only bring VS Code forward (scripts/build-vscode.sh --install)")
+    /// No file is a setup with nothing in it yet. A file that is there has to be a JSON object.
+    private static func readSettings(_ file: String) throws -> [String: Any] {
+        guard FileManager.default.fileExists(atPath: file) else { return [:] }
+        guard let settings = try JSONSerialization.jsonObject(with: Data(contentsOf: URL(fileURLWithPath: file))) as? [String: Any] else {
+            throw CocoaError(.fileReadCorruptFile)
         }
-        note("Automation — " + automation.joined(separator: " · ") + " (\"not asked yet\" is granted the first time you click through to that app)")
-        note("open at login: \(SMAppService.mainApp.status == .enabled ? "on" : "off") (menu bar icon → Open at Login)")
-        note("\(store.pending.count) waiting, \(Intake.sessions.count) session(s) seen since launch")
-        return (failed ? "fail" : "ok") + "\n" + lines.joined(separator: "\n") + "\n"
+        return settings
     }
 
     /// beckon's own hook entry for an event, recognised by the binary's name.
