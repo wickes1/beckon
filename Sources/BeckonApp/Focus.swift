@@ -248,7 +248,11 @@ enum Focus {
     static func open(_ target: Target) {
         switch target {
         case .url(let u):
-            if let url = URL(string: u) { NSWorkspace.shared.open(url) }
+            // The link itself stays out of the log: a login link can carry a token.
+            guard let url = URL(string: u), NSWorkspace.shared.open(url) else {
+                AuditLog.note("OPEN failed: macOS opened nothing for the card's link (\(URL(string: u)?.scheme ?? "unreadable"))")
+                return
+            }
         case .braveTab(let id):
             // The scripting `id` of a Chromium tab is the same number extensions see, so the tab is found
             // by id: its URL changes as a login redirects.
