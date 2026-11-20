@@ -2,6 +2,8 @@
 # swift test, with the framework paths Command Line Tools (no Xcode) needs to find Swift Testing.
 set -euo pipefail
 cd "$(dirname "$0")/.."
+# The tests deliver cards, and every card plays its chime unless this is set (Chime.play in Store.swift).
+export BECKON_SILENT=1
 F=/Library/Developer/CommandLineTools/Library/Developer/Frameworks
 L=/Library/Developer/CommandLineTools/Library/Developer/usr/lib
 if [[ -d "$F/Testing.framework" ]]; then

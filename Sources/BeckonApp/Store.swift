@@ -472,7 +472,9 @@ enum Chime {
     }()
 
     static func play(for kind: Kind) {
-        guard !muted else { return }
+        // The unit tests drive `arrive` dozens of times and would ring the real system sounds;
+        // scripts/test.sh sets this so a test run is silent without muting the whole Mac.
+        guard !muted, ProcessInfo.processInfo.environment["BECKON_SILENT"] == nil else { return }
         preview(sound(kind.needsYou ? .waiting : .ended))
     }
 
