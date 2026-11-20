@@ -11,8 +11,10 @@ enum Presence {
     /// when the panel can't be seen. Only existence matters.
     private(set) static var locked = false
     private static var observers: [NSObjectProtocol] = []
+    private static var started = false
 
     static func start() {
+        started = true
         let session = CGSessionCopyCurrentDictionary() as? [String: Any]
         locked = (session?["CGSSessionScreenIsLocked"] as? Bool) ?? false
         writeFile()
@@ -23,6 +25,15 @@ enum Presence {
 
     /// Without beckon running nothing keeps the file honest, so it goes away and pushes are sent as normal.
     static func stop() { unlink(BeckonPaths.presenceFile) }
+
+    /// A hook whose connection is refused removes the file, taking that for a crashed app. A running app refuses too
+    /// when its backlog is full (while it waits out a full descriptor table), and the file would then stay gone until
+    /// the next lock and unlock: phone pushes for a user sitting at the Mac. Any request that gets through puts it
+    /// back. Only once start() has run: the tests drive Intake without it, and must never touch the real file.
+    static func restoreFile() {
+        guard started, !locked, access(BeckonPaths.presenceFile, F_OK) != 0 else { return }
+        writeFile()
+    }
 
     private static func writeFile() {
         if locked { unlink(BeckonPaths.presenceFile) }

@@ -19,6 +19,7 @@ enum Intake {
     static var sessions: [String: Session] = [:]
 
     static func handle(_ data: Data, _ conn: Connection) {
+        Presence.restoreFile()
         guard let env = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let event = env["event"] as? String else { conn.reply(""); return }
         conn.expectsReply = env["wait"] as? Bool ?? false
