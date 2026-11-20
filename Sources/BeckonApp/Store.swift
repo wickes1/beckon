@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import Observation
+import os
 import SwiftUI
 
 struct ActionView: Equatable {
@@ -435,11 +436,29 @@ enum AuditLog {
     static func note(_ text: String) { append(formatter.string(from: Date()) + " " + text) }
 
     private static let lock = NSLock()
-    private static func append(_ text: String) {
+    /// The system log, for a line the file can't take: it needs no new descriptor, and the file can't be opened
+    /// exactly when the descriptor table is full, which is what "SERVER accept failed" reports.
+    private static let fallback = Logger(subsystem: "dev.wickend.beckon", category: "audit")
+
+    /// One open, append, close per line. Only ever appends: falling back to createFile when the open failed replaced
+    /// the whole trail with one line whenever the second try got a descriptor the first didn't. And write(2) returns
+    /// an error where FileHandle.write raises an Objective-C exception, which a full disk turned into a crash.
+    static func append(_ text: String, to file: String = path) {
         lock.lock(); defer { lock.unlock() }
         let line = text.replacingOccurrences(of: "\n", with: " ") + "\n"
-        if let h = FileHandle(forWritingAtPath: path) { h.seekToEndOfFile(); h.write(Data(line.utf8)); try? h.close() }
-        else { FileManager.default.createFile(atPath: path, contents: Data(line.utf8)) }
+        let fd = open(file, O_WRONLY | O_APPEND | O_CREAT | O_CLOEXEC, 0o600)
+        guard fd >= 0 else {
+            let code = errno
+            fallback.error("beckon.log can't be opened (errno \(code)): \(line, privacy: .public)")
+            return
+        }
+        defer { close(fd) }
+        let bytes = Array(line.utf8)
+        let written = bytes.withUnsafeBytes { Darwin.write(fd, $0.baseAddress, $0.count) }
+        if written != bytes.count {
+            let code = errno
+            fallback.error("beckon.log write failed (errno \(code)): \(line, privacy: .public)")
+        }
     }
 }
 

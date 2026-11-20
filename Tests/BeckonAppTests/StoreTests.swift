@@ -200,3 +200,21 @@ private func waiting() -> Connection {
         #expect(s.sent["a"] == "Denied")
     }
 }
+
+@Suite struct AuditTrail {
+    // The log is the only record of what was approved from the panel. A line it can't write may cost that line,
+    // never the lines already there: the old fallback, createFile, replaced the whole file with the one new line.
+    // A read-only file stands in for an open that fails (a full descriptor table) while replacing the file works.
+    @Test func aLineThatCantBeWrittenLeavesTheTrailAsItWas() throws {
+        let file = NSTemporaryDirectory() + "beckon-audit-\(UUID().uuidString).log"
+        defer { try? FileManager.default.removeItem(atPath: file) }
+        let trail = "line 1\nline 2\nline 3\n"
+        FileManager.default.createFile(atPath: file, contents: Data(trail.utf8), attributes: [.posixPermissions: 0o444])
+        AuditLog.append("SERVER accept failed", to: file)
+        #expect(try String(contentsOfFile: file, encoding: .utf8) == trail)
+
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file)
+        AuditLog.append("ACCEPTED\nbehavior=allow", to: file)
+        #expect(try String(contentsOfFile: file, encoding: .utf8) == trail + "ACCEPTED behavior=allow\n")
+    }
+}
