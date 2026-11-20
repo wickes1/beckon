@@ -56,6 +56,8 @@ private struct WaitingHook {
 }
 
 @Suite struct CardsLeavingByThemselves {
+    init() { AuditLog.path = NSTemporaryDirectory() + "beckon-test-audit.log" }  // cards leaving are logged: keep them out of the real trail
+
     // The default. Someone who never touched the setting must see the panel behave exactly as it always has:
     // no bar, and a card that stays until they deal with it.
     @Test func neverMeansNoCountdownAndNothingLeaves() {
@@ -238,6 +240,19 @@ private struct WaitingHook {
 
         s.remove { $0.callKey == "action" }  // what the skill's `beckon dismiss` does
         #expect(s.pending.map(\.id) == ["prompt"])
+    }
+
+    // A prompt the timer hid, or news it dismissed, leaves the panel without anyone seeing it go. The log is the
+    // one place that can say what happened to it.
+    @Test func whatTheTimerTakesAwayIsLogged() throws {
+        let before = (try? Data(contentsOf: URL(fileURLWithPath: AuditLog.path)))?.count ?? 0
+        let s = store()
+        let tag = UUID().uuidString
+        arrive(s, item("prompt-" + tag), item("news-" + tag, kind: done))
+        s.sweep(now: later)
+        let added = String(decoding: try Data(contentsOf: URL(fileURLWithPath: AuditLog.path)).dropFirst(before), as: UTF8.self)
+        #expect(added.contains("AUTO hidden after 30 s: Approval session=session-prompt-\(tag)"))
+        #expect(added.contains("AUTO dismissed after 30 s: Done session=session-news-\(tag)"))
     }
 
     // The × on an "Action needed" card is the user saying they are done with it: that still ends it. Only the

@@ -413,7 +413,10 @@ final class Store {
                 countdowns[id] = nil
                 continue
             }
-            switch AutoDismiss.whenTimeIsUp(item.kind) {
+            let how = AutoDismiss.whenTimeIsUp(item.kind)
+            // Nothing else records it: "where did that approval go" is answered from the log or not at all.
+            AuditLog.note("AUTO \(how == .hide ? "hidden" : "dismissed") after \(Int(stay)) s: \(item.kind.label) session=\(item.sessionID) card=\(item.summary)")
+            switch how {
             case .dismiss: remove(id, animation: AutoDismiss.fade)
             case .hide: hide(id, animation: AutoDismiss.fade)
             }
