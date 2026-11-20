@@ -51,6 +51,11 @@ enum QuestionFormat {
         return parts.joined(separator: ", ")
     }
 
+    /// What the card holds, as each question's answer.
+    static func answers(_ view: QuestionsView, _ d: Draft) -> [Int: String] {
+        Dictionary(uniqueKeysWithValues: view.questions.map { ($0.id, answer($0, picks: d.picks[$0.id] ?? [], other: d.other[$0.id] ?? "")) })
+    }
+
     /// The hook's stdout: allow, with the original input plus `answers` keyed by each question's text.
     static func decision(_ view: QuestionsView, answers: [Int: String]) -> String {
         var input = (try? JSONSerialization.jsonObject(with: Data(view.inputJSON.utf8))) as? [String: Any] ?? [:]

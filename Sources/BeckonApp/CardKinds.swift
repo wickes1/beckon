@@ -45,7 +45,7 @@ struct QuestionsContent: View {
             ForEach(q.options) { o in
                 let on = d.picks[q.id]?.contains(o.id) ?? false
                 VStack(spacing: 6) {
-                    OptionRow(label: o.label, detail: o.description, selected: on, action: { pick(o, q, isLast: isLast) }) {
+                    OptionRow(label: o.label, detail: o.description, selected: on, action: { pick(o, q) }) {
                         Radio(on: on, square: q.multiSelect)
                     } trail: {
                         if o.preview != nil {
@@ -74,39 +74,19 @@ struct QuestionsContent: View {
 
     func go(_ i: Int) { withAnimation(spring) { store.update(item.id) { $0.current = i; $0.previewOpen = nil } } }
 
-    func pick(_ o: QOption, _ q: Question, isLast: Bool) {
-        // The click guard as it stands at the click. The send below runs 0.25 s later and store.answer checks
-        // again then, which on its own would count that pause towards the time a card must have been up.
-        let armed = store.armed(item.id)
-        store.update(item.id) { d in
-            var set = d.picks[q.id] ?? []
-            if q.multiSelect {
-                if set.contains(o.id) { set.remove(o.id) } else { set.insert(o.id) }
-                d.picks[q.id] = set
-            } else {
-                d.picks[q.id] = [o.id]
-                d.other[q.id] = ""
-            }
-        }
-        guard !q.multiSelect else { return }
-        // A single-select pick that leaves every question answered is the answer itself: it sends, as an
-        // approval's Yes does. Multi-select and typed answers keep Send — only the user knows when those are done.
+    func pick(_ o: QOption, _ q: Question) {
         // Short pause either way so the pick registers before the card moves on.
-        if store.draft(item.id).complete(view.questions.count) {
-            // Too early to count as an answer: the pick stays marked, and the next pick or Send sends it.
-            guard armed else { return }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { send() }
-        } else if !isLast {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { go(q.id + 1) }
+        switch store.pick(o.id, of: q, in: view, on: item.id) {
+        case .send: DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { send() }
+        case .next: DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { go(q.id + 1) }
+        case .stay: break
         }
     }
 
     func send() {
         let d = store.draft(item.id)
-        var answers: [Int: String] = [:]
-        for q in view.questions { answers[q.id] = QuestionFormat.answer(q, picks: d.picks[q.id] ?? [], other: d.other[q.id] ?? "") }
         let n = view.questions.count
-        store.answer(item.id, decision: QuestionFormat.decision(view, answers: answers),
+        store.answer(item.id, decision: QuestionFormat.decision(view, answers: QuestionFormat.answers(view, d)),
                      confirmation: n == 1 ? "Answered — sent to Claude" : "All \(n) answered — sent to Claude",
                      typed: !d.other.values.allSatisfy(\.isEmpty))
     }

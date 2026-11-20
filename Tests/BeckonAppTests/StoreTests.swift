@@ -78,6 +78,45 @@ private func waiting() -> Connection {
         s.pointerEnteredAt = later.addingTimeInterval(-1)
         #expect(s.armed("a", now: later))
     }
+
+    // A single-select pick that answers the last question sends by itself, so it is a click like an approval's Yes:
+    // one that lands just as the card appears (aimed at the window behind) must not become the answer. The pick stays
+    // marked, the next pick sends it, and the log says the click came and was ignored.
+    @Test func aPickTooSoonAfterTheCardAppearsDoesNotSend() throws {
+        let option = { (i: Int) in QOption(id: i, label: "Option \(i)", description: "", preview: nil) }
+        let view = QuestionsView(questions: [Question(id: 0, header: "Q1", question: "Which one?", multiSelect: false, options: [option(0), option(1)])],
+                                 inputJSON: "{}")
+        let q = view.questions[0]
+        let s = Store()
+        s.arrive(item("q", kind: .questions(view)), connection: Connection(fd: -1), hookPID: nil)
+        s.cardShown("q")
+        s.pointerEnteredAt = Date()
+        let before = (try? Data(contentsOf: URL(fileURLWithPath: AuditLog.path)))?.count ?? 0
+
+        #expect(s.pick(1, of: q, in: view, on: "q") == .stay)
+        #expect(s.draft("q").picks[0] == [1])
+        let added = try Data(contentsOf: URL(fileURLWithPath: AuditLog.path)).dropFirst(before)
+        #expect(String(decoding: added, as: UTF8.self).contains("IGNORED(click guard) behavior=allow"))
+
+        #expect(s.pick(1, of: q, in: view, on: "q", now: Date().addingTimeInterval(1)) == .send)
+    }
+
+    // Only a pick that finishes the card sends. One that leaves a question open moves on, and a multi-select pick
+    // waits for Send however long the card has been up.
+    @Test func aPickSendsOnlyWhenItFinishesASingleSelectCard() {
+        let option = { (i: Int) in QOption(id: i, label: "Option \(i)", description: "", preview: nil) }
+        let view = QuestionsView(questions: [Question(id: 0, header: "Q1", question: "First?", multiSelect: false, options: [option(0)]),
+                                             Question(id: 1, header: "Q2", question: "Which ones?", multiSelect: true, options: [option(0), option(1)])],
+                                 inputJSON: "{}")
+        let s = Store()
+        s.arrive(item("q", kind: .questions(view)), connection: Connection(fd: -1), hookPID: nil)
+        s.cardShown("q")
+        s.pointerEnteredAt = Date()
+        let armedLater = Date().addingTimeInterval(1)
+        #expect(s.pick(0, of: view.questions[0], in: view, on: "q", now: armedLater) == .next)
+        #expect(s.pick(1, of: view.questions[1], in: view, on: "q", now: armedLater) == .stay)
+        #expect(s.draft("q").complete(2))
+    }
 }
 
 @Suite struct UpdatesAndPrompts {

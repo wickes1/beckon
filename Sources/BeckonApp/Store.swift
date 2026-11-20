@@ -229,8 +229,7 @@ final class Store {
     func answer(_ id: String, decision: String, confirmation: String, typed: Bool = false) {
         let now = Date()
         let ok = (typed ? shownLongEnough(id, now: now) : armed(id, now: now)) && sent[id] == nil
-        AuditLog.write(item: items.first { $0.id == id }, decision: decision, accepted: ok,
-                       shownFor: now.timeIntervalSince(shownAt[id] ?? now), pointerFor: pointerEnteredAt.map { now.timeIntervalSince($0) })
+        log(id, decision: decision, accepted: ok, now: now)
         guard ok else { return }
         connections.removeValue(forKey: id)?.reply(decision)
         withAnimation(spring) { sent[id] = confirmation }
@@ -305,6 +304,40 @@ final class Store {
     func armed(_ id: String, now: Date = Date()) -> Bool {
         guard shownLongEnough(id, now: now), let entered = pointerEnteredAt else { return false }
         return now.timeIntervalSince(entered) >= Self.dwell
+    }
+
+    private func log(_ id: String, decision: String, accepted: Bool, now: Date) {
+        AuditLog.write(item: items.first { $0.id == id }, decision: decision, accepted: accepted,
+                       shownFor: now.timeIntervalSince(shownAt[id] ?? now), pointerFor: pointerEnteredAt.map { now.timeIntervalSince($0) })
+    }
+
+    enum AfterPick { case stay, next, send }
+
+    /// A click on one of a question card's options: records the pick and says what follows. A single-select pick
+    /// that leaves every question answered is the answer itself and sends, as an approval's Yes does; one that leaves
+    /// questions open moves on. Multi-select and typed answers keep Send: only the user knows when those are done.
+    /// The click guard is read here, at the click: the send runs a moment later, and answer's own check then would
+    /// count that pause towards the time a card must have been up. A pick too early to count stays marked, so the
+    /// next pick or Send sends it, and is logged as ignored, as answer logs one: "never clicked" would be wrong.
+    func pick(_ option: Int, of q: Question, in view: QuestionsView, on id: String, now: Date = Date()) -> AfterPick {
+        let armed = self.armed(id, now: now)
+        update(id) { d in
+            var set = d.picks[q.id] ?? []
+            if q.multiSelect {
+                if set.contains(option) { set.remove(option) } else { set.insert(option) }
+                d.picks[q.id] = set
+            } else {
+                d.picks[q.id] = [option]
+                d.other[q.id] = ""
+            }
+        }
+        guard !q.multiSelect else { return .stay }
+        guard draft(id).complete(view.questions.count) else { return q.id < view.questions.count - 1 ? .next : .stay }
+        guard armed else {
+            log(id, decision: QuestionFormat.decision(view, answers: QuestionFormat.answers(view, draft(id))), accepted: false, now: now)
+            return .stay
+        }
+        return .send
     }
 
     func expand(_ id: String) {
