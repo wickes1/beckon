@@ -276,6 +276,19 @@ private struct WaitingHook {
         #expect(s.ordered.map(\.id) == ["a"])
     }
 
+    // The setting comes back from defaults, where anything can be. Only a time the menu offers counts; anything else
+    // is Never, or cards would leave after a time the menu shows no tick against.
+    @Test func onlyATimeTheMenuOffersIsUsed() {
+        for seconds in AutoDismiss.choices { #expect(AutoDismiss.offered(seconds) == seconds) }
+        for seconds in [0.0, 15, -1, 86_400] { #expect(AutoDismiss.offered(seconds) == nil, "\(seconds)") }
+    }
+
+    // The menu names the choices as the README does: 10 s, 30 s, 60 s or 5 min, and Never.
+    @Test func theMenuNamesEachChoice() {
+        #expect(AutoDismiss.choices.map(AutoDismiss.title) == ["After 10 Seconds", "After 30 Seconds", "After 60 Seconds", "After 5 Minutes"])
+        #expect(AutoDismiss.title(nil) == "Never")
+    }
+
     // Changing the setting applies to the cards already there, from that moment: a card that has sat on the
     // panel for minutes must not vanish the instant "10 seconds" is picked, and Never must stop every bar.
     @Test func pickingATimeStartsTheCardsInViewAfresh() throws {

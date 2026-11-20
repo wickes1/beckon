@@ -431,12 +431,13 @@ enum AutoDismiss {
     private static let key = "cards.dismissAfter"
     /// The chosen time in seconds; nil = Never, which is also what an unset or unknown value means.
     static var after: TimeInterval? {
-        get {
-            let seconds = UserDefaults.standard.double(forKey: key)
-            return choices.contains(seconds) ? seconds : nil
-        }
+        get { offered(UserDefaults.standard.double(forKey: key)) }
         set { UserDefaults.standard.set(newValue ?? 0, forKey: key) }
     }
+
+    /// A stored time the menu doesn't offer (a choice since dropped, a hand-edited default) is Never, as is the 0 that
+    /// Never is stored as: otherwise cards would leave after a time the menu shows no tick against.
+    static func offered(_ seconds: Double) -> TimeInterval? { choices.contains(seconds) ? seconds : nil }
 
     static func title(_ seconds: TimeInterval?) -> String {
         guard let seconds else { return "Never" }
