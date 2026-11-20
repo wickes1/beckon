@@ -34,12 +34,16 @@ func beckon(_ args: [String], stdin: String = "", home: TestHome) throws -> CLIR
     process.arguments = args
     process.environment = ["HOME": home.path]
     let input = Pipe(), out = Pipe(), err = Pipe()
+    // Into the pipe before the CLI starts. Written after, it raced a CLI that exits without reading stdin (every
+    // command line it can't read): writing to a pipe nobody holds open raises SIGPIPE, which killed the whole test
+    // run about once in 80, and every test home still in use was left in /tmp. The pipe holds this much unread.
+    precondition(stdin.utf8.count <= 16_384, "more stdin than a pipe holds before the CLI reads it")
+    input.fileHandleForWriting.write(Data(stdin.utf8))
+    try input.fileHandleForWriting.close()
     process.standardInput = input
     process.standardOutput = out
     process.standardError = err
     try process.run()
-    input.fileHandleForWriting.write(Data(stdin.utf8))
-    try input.fileHandleForWriting.close()
     let stdout = out.fileHandleForReading.readDataToEndOfFile()
     let stderr = err.fileHandleForReading.readDataToEndOfFile()
     process.waitUntilExit()
@@ -162,6 +166,8 @@ func listeningSocket(at path: String) throws -> Int32 {
         defer { close(app) }
         Thread.detachNewThread {
             let hook = accept(app, nil, nil)
+            var on: Int32 = 1
+            setsockopt(hook, SOL_SOCKET, SO_NOSIGPIPE, &on, socklen_t(MemoryLayout<Int32>.size))  // a CLI gone early fails this test, not the run
             var buf = [UInt8](repeating: 0, count: 4096)
             while read(hook, &buf, buf.count) > 0 {}
             _ = Array("also run the tests\n".utf8).withUnsafeBytes { write(hook, $0.baseAddress, $0.count) }
