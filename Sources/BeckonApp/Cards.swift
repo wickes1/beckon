@@ -535,10 +535,26 @@ struct CountdownBar: View {
         // Drawn from the clock, not run as an animation: a tick per pixel the bar loses (every frame for a 10 s
         // stay, a few a second for 5 min) instead of the panel redrawing at full rate for the whole stay. It also
         // means nothing that switches animations off can stop it.
-        TimelineView(.periodic(from: since, by: max(1.0 / 60, stay / 800))) { ctx in
+        TimelineView(CountdownTicks(since: since, stay: stay)) { ctx in
             Rectangle().fill(color.opacity(0.8)).frame(height: 2)
                 .scaleEffect(x: max(0, 1 - ctx.date.timeIntervalSince(since) / stay), y: 1, anchor: .leading)
         }
+    }
+}
+
+/// The bar's ticks: one now, then one per pixel it loses, and none once it is empty. A card can stay on past its
+/// time (the pointer is on the panel, an answer is being typed), and an endless schedule went on redrawing its empty
+/// bar, every frame for a 10 s stay, for as long as it stayed.
+struct CountdownTicks: TimelineSchedule {
+    let since: Date
+    let stay: TimeInterval
+
+    func entries(from start: Date, mode: TimelineScheduleMode) -> [Date] {
+        let end = since.addingTimeInterval(stay)
+        guard start < end else { return [start] }
+        let step = max(1.0 / 60, stay / 800)
+        let next = ((max(0, start.timeIntervalSince(since)) / step).rounded(.down) + 1) * step
+        return [start] + stride(from: next, to: stay, by: step).map { since.addingTimeInterval($0) } + [end]
     }
 }
 

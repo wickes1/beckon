@@ -90,7 +90,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if store.pointerInside != over {
             store.pointerInside = over
             store.pointerEnteredAt = over ? Date() : nil
-            if !over { store.sweep() }  // a card whose time ran out while the pointer was on the panel can go now
         }
     }
 

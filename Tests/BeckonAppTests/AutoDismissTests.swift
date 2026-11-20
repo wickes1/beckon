@@ -1,4 +1,5 @@
 import Foundation
+import enum SwiftUI.TimelineScheduleMode  // only this: SwiftUI's own Visibility would clash with the app's
 import Testing
 @testable import BeckonApp
 
@@ -24,6 +25,12 @@ private func arrive(_ s: Store, _ items: Item...) {
 
 /// A moment by which a card that came into view just now has used up its 30 s.
 private var later: Date { Date().addingTimeInterval(31) }
+
+/// Gives the main queue, where the store's timers run, up to `seconds` to bring about `done`.
+@MainActor private func wait(upTo seconds: TimeInterval, until done: () -> Bool) async throws {
+    let end = Date().addingTimeInterval(seconds)
+    while !done(), Date() < end { try await Task.sleep(for: .milliseconds(20)) }
+}
 
 /// A hook waiting on a card, seen from the hook's end: what, if anything, the app has sent it.
 private struct WaitingHook {
@@ -111,16 +118,76 @@ private struct WaitingHook {
         let s = store()
         arrive(s, item("d", kind: done))
         s.pointerInside = true
-        s.sweep(now: later)
+        s.countdowns["d"] = Date().addingTimeInterval(-31)  // its time ran out while the pointer was on the panel
+        s.sweep()
         #expect(s.ordered.map(\.id) == ["d"])
-        s.pointerInside = false
-        s.sweep(now: later)
+        s.pointerInside = false  // and nothing else comes along to sweep it: the pointer leaving has to
         #expect(s.ordered.isEmpty)
 
         arrive(s, item("a"), item("e", kind: done))
         s.update("a") { $0.reply = "use the staging remo" }  // "a" is the open card
         s.sweep(now: later)
         #expect(Set(s.ordered.map(\.id)) == ["a", "e"])
+    }
+
+    // The card's own timer is what makes it leave. Every other test here moves the clock by hand with sweep(now:),
+    // so with the timer gone they all stay green while no card ever leaves by itself.
+    @Test @MainActor func aCardLeavesOnItsOwnTimer() async throws {
+        let s = store(stay: 0.2)
+        arrive(s, item("d", kind: done))
+        try await wait(upTo: 3) { s.ordered.isEmpty }
+        #expect(s.ordered.isEmpty)
+    }
+
+    // A card's timer fires once. If an answer was being typed then, the card waits; when the text is deleted again
+    // nothing else happens on the panel, and the card must still go rather than sit there with an empty bar.
+    @Test @MainActor func anOverdueCardGoesOnceTheAnswerThatHeldItIsDeleted() async throws {
+        let s = store(stay: 0.2)
+        arrive(s, item("a"), item("e", kind: done))  // "a" is the open card
+        s.update("a") { $0.reply = "use the staging remo" }
+        try await Task.sleep(for: .milliseconds(400))  // both timers have fired and found the user typing
+        #expect(Set(s.ordered.map(\.id)) == ["a", "e"])
+        s.update("a") { $0.reply = "" }
+        try await wait(upTo: 3) { !s.ordered.contains { $0.id == "e" } }
+        #expect(!s.ordered.contains { $0.id == "e" })
+    }
+
+    // The other way an overdue card is let go: the open card whose draft held it leaves.
+    @Test func anOverdueCardGoesWhenTheCardThatHeldItBackLeaves() {
+        let s = store()
+        arrive(s, item("a"), item("e", kind: done))
+        s.update("a") { $0.reply = "typing" }
+        s.countdowns["e"] = Date().addingTimeInterval(-31)
+        s.sweep()
+        #expect(s.ordered.map(\.id).contains("e"))
+        s.remove("a")
+        #expect(s.ordered.isEmpty)
+    }
+
+    // Opening a card can push another under "+N more". The countdowns follow what is drawn: the card folded away
+    // stops, the one that came up starts.
+    @Test func expandingACardKeepsCountdownsOnWhatIsDrawn() {
+        let s = store()
+        arrive(s, item("d", kind: done))
+        s.pointerInside = true  // so the prompts below join collapsed instead of taking the open slot
+        for i in 1...5 { arrive(s, item("p\(i)")) }
+        #expect(s.expanded == "d")
+        s.expand("p5")
+        #expect(!s.onScreen.map(\.id).contains("d"))
+        #expect(Set(s.countdowns.keys) == Set(s.onScreen.map(\.id)))
+    }
+
+    // A card kept past its time keeps an empty bar, and that bar must stop redrawing: the endless schedule it had
+    // redrew it every frame for a 10 s stay, for as long as the card stayed.
+    @Test func theBarStopsTickingOnceItIsEmpty() {
+        let since = Date()
+        let ticks = CountdownTicks(since: since, stay: 10)
+        let all = ticks.entries(from: since, mode: .normal)
+        #expect(all.first == since)
+        #expect(all.last == since.addingTimeInterval(10))
+        #expect(zip(all, all.dropFirst()).allSatisfy { $0 < $1 })
+        #expect(ticks.entries(from: since.addingTimeInterval(4), mode: .normal).first == since.addingTimeInterval(4))  // drawn at once, mid-way
+        #expect(ticks.entries(from: since.addingTimeInterval(11), mode: .normal) == [since.addingTimeInterval(11)])  // drawn empty once, then nothing
     }
 
     // An answer half given, or just sent and showing its confirmation, is the user's own work on that card:

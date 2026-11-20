@@ -113,7 +113,10 @@ final class Store {
     var sent: [String: String] = [:]   // id → confirmation shown briefly before the card leaves
     var unseen: Set<String> = []
     var showAll = false
-    var pointerInside = false
+    var pointerInside = false {
+        // A card whose time ran out while the pointer was on the panel can go now.
+        didSet { if oldValue && !pointerInside { sweep() } }
+    }
     var replyable: Set<String> = []    // Done cards whose Stop hook is still listening for a reply
     var countdowns: [String: Date] = [:]  // id → since when the card has been in view, while it is counting down to leaving by itself
 
@@ -122,6 +125,7 @@ final class Store {
     @ObservationIgnored private var watchers: [String: DispatchSourceProcess] = [:]
     @ObservationIgnored var onChange: (() -> Void)?
     @ObservationIgnored private var kept: Set<String> = []  // cards whose countdown was called off for good
+    @ObservationIgnored private var sweepAgain = false  // a sweep is due in a moment, see sweep()
 
     static let visibleRows = 4
 
@@ -351,12 +355,24 @@ final class Store {
     }
 
     /// Lets go of every card whose time is up. Called by each card's timer, and again when whatever held an
-    /// overdue card back has ended (the pointer left the panel, a card was removed).
+    /// overdue card back has ended (the pointer left the panel, a card was removed, or a second has passed).
     /// Nothing leaves while the user is engaged with the panel: a card vanishing would move the others under
     /// the pointer or the text being typed. A card holding an unsent answer, or showing its "Sent" line, is the
     /// user's own doing and keeps its place for good.
     func sweep(now: Date = Date()) {
-        guard let stay, !engaged else { return }
+        guard let stay else { return }
+        guard !engaged else {
+            // Not every end of being engaged calls back here: an answer typed and deleted again, or the open card
+            // swapped from the menu bar, leaves no event behind. While an overdue card waits, look again shortly.
+            if !sweepAgain, countdowns.values.contains(where: { now.timeIntervalSince($0) >= stay }) {
+                sweepAgain = true
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
+                    self?.sweepAgain = false
+                    self?.sweep()
+                }
+            }
+            return
+        }
         for (id, since) in countdowns where now.timeIntervalSince(since) >= stay {
             guard countdowns[id] != nil, let item = items.first(where: { $0.id == id }) else { continue }
             if sent[id] != nil || draft(id).hasInput {
