@@ -20,6 +20,8 @@ VERSION="$(sed -n 's/^public let beckonVersion = "\(.*\)"$/\1/p' Sources/BeckonC
 [[ -n "$VERSION" ]] || { echo "could not read beckonVersion" >&2; exit 1; }
 grep -q "\"version\": \"$VERSION\"" plugin/.claude-plugin/plugin.json || { echo "plugin/.claude-plugin/plugin.json version differs from beckonVersion ($VERSION)" >&2; exit 1; }
 security find-identity -v -p codesigning | grep -qF "\"$IDENTITY\"" || { echo "no \"$IDENTITY\" signing identity" >&2; exit 1; }
+# There is no CI: this is the one point a release is sure to pass the tests before it is built.
+scripts/test.sh
 
 # Two single-arch builds joined with lipo: a multi-arch `swift build` needs full Xcode, this works with
 # Command Line Tools alone.
