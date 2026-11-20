@@ -203,7 +203,7 @@ beckon dismiss --key bank-login
 | `beckon hook <Event>` | `--rewake` (Stop only) | run by Claude Code's hooks; reads the hook JSON on stdin and always exits 0 when the app can't be reached |
 | `beckon --version` | | prints the version |
 
-A command line beckon can't read prints the usage and exits 1. Never 2: from a hook, Claude Code would take that as an order to block the prompt.
+A command line beckon can't read exits 1. A `beckon hook` one prints a single line saying the hooks and the CLI are probably different versions; no command at all prints a line saying Claude Code probably dropped the hooks' `args` (it is older than beckon needs), then the usage; anything else prints the usage. Claude Code shows the first line a failed hook writes. Never exit 2: from a hook, Claude Code would take that as an order to block the prompt.
 
 `notify` is for skills that need you to do something outside the terminal. It returns at once; the skill keeps watching for the result itself and calls `dismiss` when it sees it. `--brave-tab` takes the tab id the claude-in-chrome tools report.
 

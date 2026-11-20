@@ -4,6 +4,8 @@
 //
 // Fail open, always: if the app isn't running, the socket is missing, or anything at all goes wrong,
 // a hook prints nothing and exits 0, so Claude Code behaves exactly as if beckon weren't installed.
+// The one exception is a hook command line it can't read (hooks and CLI of different versions, or a Claude Code
+// that drops the hooks' args): exit 1 with a line on stderr, an error Claude Code shows but never blocks on.
 // Darwin only (no Foundation) to keep cold start low.
 import BeckonCore
 import Darwin
@@ -156,7 +158,12 @@ func fail(_ message: String) -> Never {
 }
 
 let argv = CommandLine.arguments
-guard argv.count >= 2 else { usage() }
+guard argv.count >= 2 else {
+    // A hook lands here when Claude Code drops its args, and Claude Code shows the first line a failed hook writes
+    // to stderr: that line has to say what is wrong, not "usage:".
+    fputs("beckon: no command given (from a Claude Code hook: its args were dropped, so Claude Code is older than beckon needs)\n", stderr)
+    usage()
+}
 
 switch argv[1] {
 case "--version", "-v":
