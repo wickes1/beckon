@@ -26,6 +26,9 @@ private func arrive(_ s: Store, _ items: Item...) {
 /// A moment by which a card that came into view just now has used up its 30 s.
 private var later: Date { Date().addingTimeInterval(31) }
 
+/// The same moment, give or take the last bits a date loses when intervals are added to it.
+private func same(_ a: Date?, _ b: Date) -> Bool { a.map { abs($0.timeIntervalSince(b)) < 0.001 } ?? false }
+
 /// Gives the main queue, where the store's timers run, up to `seconds` to bring about `done`.
 @MainActor private func wait(upTo seconds: TimeInterval, until done: () -> Bool) async throws {
     let end = Date().addingTimeInterval(seconds)
@@ -307,5 +310,77 @@ private struct WaitingHook {
         #expect(s.ordered.map(\.id) == ["d"])
         s.stay = 30
         #expect(s.countdowns["d"] != nil)
+    }
+
+    // A countdown is time to read the card, and nobody reads a panel behind the lock screen: a Stopped card that ran
+    // out there was gone before it was ever seen. Locked, a countdown keeps the time it has left and gets exactly that
+    // back at the unlock: neither used up while away, nor started afresh.
+    @Test func aCountdownStandsStillWhileTheScreenIsLocked() throws {
+        let s = store()
+        arrive(s, item("f", kind: .failed(FailureView(headline: "API Error: 529 Overloaded", error: ""))))
+        let since = try #require(s.countdowns["f"])
+        s.set(.locked, true, now: since.addingTimeInterval(10))  // 20 s left
+        s.sweep(now: since.addingTimeInterval(3600))
+        #expect(s.ordered.map(\.id) == ["f"])
+
+        let unlocked = since.addingTimeInterval(3600)
+        s.set(.locked, false, now: unlocked)
+        s.sweep(now: unlocked.addingTimeInterval(19))
+        #expect(s.ordered.map(\.id) == ["f"])
+        s.sweep(now: unlocked.addingTimeInterval(21))
+        #expect(s.ordered.isEmpty)
+    }
+
+    // Sleep stops the clock as a lock does. Waking to a locked screen is not being back, so the countdowns wait for
+    // the unlock; waking with no lock is, and they run from the wake.
+    @Test func wakingToALockedScreenWaitsForTheUnlock() throws {
+        let s = store()
+        arrive(s, item("d", kind: done))
+        let since = try #require(s.countdowns["d"])
+        s.set(.asleep, true, now: since.addingTimeInterval(10))  // 20 s left
+        s.set(.locked, true, now: since.addingTimeInterval(11))
+        s.set(.asleep, false, now: since.addingTimeInterval(600))
+        #expect(s.countdowns["d"] == since)
+        s.sweep(now: since.addingTimeInterval(900))
+        #expect(s.ordered.map(\.id) == ["d"])
+        s.set(.locked, false, now: since.addingTimeInterval(1000))
+        #expect(same(s.countdowns["d"], since.addingTimeInterval(990)))
+
+        s.set(.asleep, true, now: since.addingTimeInterval(1005))  // 15 s left
+        s.set(.asleep, false, now: since.addingTimeInterval(2000))
+        #expect(same(s.countdowns["d"], since.addingTimeInterval(1985)))
+        s.sweep(now: since.addingTimeInterval(2014))
+        #expect(s.ordered.map(\.id) == ["d"])
+        s.sweep(now: since.addingTimeInterval(2016))
+        #expect(s.ordered.isEmpty)
+    }
+
+    // A card that comes in behind the lock screen hasn't been seen at all, however long the screen was locked
+    // before it came: its whole time runs from the unlock.
+    @Test func aCardThatArrivesWhileLockedGetsItsFullTimeFromTheUnlock() throws {
+        let s = store()
+        s.set(.locked, true, now: Date().addingTimeInterval(-600))
+        arrive(s, item("a"))
+        let unlocked = Date().addingTimeInterval(5)
+        s.set(.locked, false, now: unlocked)
+        #expect(same(s.countdowns["a"], unlocked))
+        s.sweep(now: unlocked.addingTimeInterval(29))
+        #expect(s.ordered.map(\.id) == ["a"])
+        s.sweep(now: unlocked.addingTimeInterval(31))
+        #expect(s.ordered.isEmpty)
+        #expect(s.pending.map(\.id) == ["a"])
+    }
+
+    // The card's timer went off behind the lock screen and found its countdown standing still. After the unlock the
+    // card must still leave, on a timer for the time it had left, not sit there for good with its bar run out.
+    @Test @MainActor func aCardLeavesOnItsOwnTimerAfterTheUnlock() async throws {
+        let s = store(stay: 0.2)
+        arrive(s, item("d", kind: done))
+        s.set(.locked, true)
+        try await Task.sleep(for: .milliseconds(400))
+        #expect(s.ordered.map(\.id) == ["d"])
+        s.set(.locked, false)
+        try await wait(upTo: 3) { s.ordered.isEmpty }
+        #expect(s.ordered.isEmpty)
     }
 }

@@ -13,14 +13,24 @@ enum Presence {
     private static var observers: [NSObjectProtocol] = []
     private static var started = false
 
+    /// The same signals, with sleep and wake, also stop and start the cards' countdowns (Store.set): system
+    /// notifications any app receives, so no permission is asked for.
     static func start() {
         started = true
         let session = CGSessionCopyCurrentDictionary() as? [String: Any]
         locked = (session?["CGSSessionScreenIsLocked"] as? Bool) ?? false
         writeFile()
+        if locked { store.set(.locked, true) }
         let center = DistributedNotificationCenter.default()
-        observers.append(center.addObserver(forName: .init("com.apple.screenIsLocked"), object: nil, queue: .main) { _ in locked = true; writeFile() })
-        observers.append(center.addObserver(forName: .init("com.apple.screenIsUnlocked"), object: nil, queue: .main) { _ in locked = false; writeFile() })
+        observers.append(center.addObserver(forName: .init("com.apple.screenIsLocked"), object: nil, queue: .main) { _ in
+            locked = true; writeFile(); store.set(.locked, true)
+        })
+        observers.append(center.addObserver(forName: .init("com.apple.screenIsUnlocked"), object: nil, queue: .main) { _ in
+            locked = false; writeFile(); store.set(.locked, false)
+        })
+        let workspace = NSWorkspace.shared.notificationCenter
+        observers.append(workspace.addObserver(forName: NSWorkspace.willSleepNotification, object: nil, queue: .main) { _ in store.set(.asleep, true) })
+        observers.append(workspace.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { _ in store.set(.asleep, false) })
     }
 
     /// Without beckon running nothing keeps the file honest, so it goes away and pushes are sent as normal.

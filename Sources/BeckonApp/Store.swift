@@ -118,7 +118,10 @@ final class Store {
         didSet { if oldValue && !pointerInside { sweep() } }
     }
     var replyable: Set<String> = []    // Done cards whose Stop hook is still listening for a reply
-    var countdowns: [String: Date] = [:]  // id → since when the card has been in view, while it is counting down to leaving by itself
+    // id → since when the card has been in view, while it is counting down to leaving by itself. Time the panel couldn't
+    // be seen (screen locked, Mac asleep) doesn't count: the date moves on by that much when the countdowns run again.
+    var countdowns: [String: Date] = [:]
+    private(set) var pausedAt: Date?  // since when every countdown has stood still; nil while they run
 
     @ObservationIgnored private var shownAt: [String: Date] = [:]
     @ObservationIgnored private var connections: [String: Connection] = [:]
@@ -126,6 +129,7 @@ final class Store {
     @ObservationIgnored var onChange: (() -> Void)?
     @ObservationIgnored private var kept: Set<String> = []  // cards whose countdown was called off for good
     @ObservationIgnored private var sweepAgain = false  // a sweep is due in a moment, see sweep()
+    @ObservationIgnored private var away: Set<Away> = []  // what keeps the panel out of sight right now
 
     static let visibleRows = 4
 
@@ -373,11 +377,44 @@ final class Store {
         let counting = Set(onScreen.map(\.id)).subtracting(kept)
         for id in countdowns.keys where !counting.contains(id) { countdowns[id] = nil }
         for id in counting where countdowns[id] == nil {
-            countdowns[id] = now
-            // Wall clock, like the bar: a deadline in uptime stands still while the Mac sleeps, and the card
-            // would sit there after waking with its bar already empty.
-            DispatchQueue.main.asyncAfter(wallDeadline: .now() + stay) { [weak self] in self?.sweep() }
+            // One that comes into view while the panel can't be seen starts at the moment the clock stopped, so it
+            // has its full time when the clock runs again; its timer is set then.
+            countdowns[id] = pausedAt ?? now
+            if pausedAt == nil { sweep(after: stay) }
         }
+    }
+
+    /// A timer for one countdown. Wall clock, like the bar and sweep: a deadline in uptime stands still while the Mac
+    /// sleeps, so it would drift from what they measure. Time out of sight is taken out by moving the countdown's
+    /// date on, not by this clock.
+    private func sweep(after seconds: TimeInterval) {
+        DispatchQueue.main.asyncAfter(wallDeadline: .now() + max(0, seconds)) { [weak self] in self?.sweep() }
+    }
+
+    /// What keeps the panel out of sight. Either one stops the countdowns; they run again only when neither holds,
+    /// so waking to a locked screen leaves them stopped until it is unlocked.
+    enum Away { case locked, asleep }
+
+    /// The screen locked or unlocked, the Mac went to sleep or woke; Presence passes each one on. A countdown is
+    /// time to read the card, and nobody reads a panel they can't see: a Stopped card that ran out behind the lock
+    /// screen would be gone before it was ever seen. So the first reason to be away stops every countdown with the
+    /// time it has left, and the last one ending starts them again from there.
+    func set(_ reason: Away, _ isAway: Bool, now: Date = Date()) {
+        let wasAway = !away.isEmpty
+        if isAway { away.insert(reason) } else { away.remove(reason) }
+        if !wasAway && !away.isEmpty { pausedAt = now }
+        if wasAway && away.isEmpty { resumeCountdowns(now: now) }
+    }
+
+    private func resumeCountdowns(now: Date) {
+        guard let stoppedAt = pausedAt else { return }
+        pausedAt = nil
+        let gap = max(0, now.timeIntervalSince(stoppedAt))
+        for (id, since) in countdowns { countdowns[id] = since.addingTimeInterval(gap) }
+        // The timers set before the stop went off while it lasted, or will go off early; each needs one for the
+        // time it has left.
+        guard let stay else { return }
+        for since in countdowns.values { sweep(after: stay - now.timeIntervalSince(since)) }
     }
 
     /// The pointer came onto this card: its countdown is off for good, and it stays until dismissed by hand.
@@ -390,10 +427,10 @@ final class Store {
     /// Lets go of every card whose time is up. Called by each card's timer, and again when whatever held an
     /// overdue card back has ended (the pointer left the panel, a card was removed, or a second has passed).
     /// Nothing leaves while the user is engaged with the panel: a card vanishing would move the others under
-    /// the pointer or the text being typed. A card holding an unsent answer, or showing its "Sent" line, is the
-    /// user's own doing and keeps its place for good.
+    /// the pointer or the text being typed. Nor while the countdowns stand still: no time is passing for them.
+    /// A card holding an unsent answer, or showing its "Sent" line, is the user's own doing and keeps its place for good.
     func sweep(now: Date = Date()) {
-        guard let stay else { return }
+        guard let stay, pausedAt == nil else { return }
         guard !engaged else {
             // Not every end of being engaged calls back here: an answer typed and deleted again, or the open card
             // swapped from the menu bar, leaves no event behind. While an overdue card waits, look again shortly.

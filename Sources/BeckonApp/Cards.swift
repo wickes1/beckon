@@ -514,7 +514,7 @@ struct CardShell: View {
         // Drawn over the card's bottom edge, so it takes no room: the card is the same size with or without it.
         .overlay(alignment: .bottom) {
             if let since = store.countdowns[item.id], let stay = store.stay {
-                CountdownBar(since: since, stay: stay, color: kindColor(item.kind))
+                CountdownBar(since: since, stay: stay, pausedAt: store.pausedAt, color: kindColor(item.kind))
                     .frame(maxHeight: .infinity, alignment: .bottom)
                     .clipShape(RoundedRectangle(cornerRadius: open ? 18 : 14, style: .continuous))
                     .allowsHitTesting(false)
@@ -530,15 +530,24 @@ struct CardShell: View {
 struct CountdownBar: View {
     let since: Date
     let stay: TimeInterval
+    let pausedAt: Date?
     let color: Color
     var body: some View {
-        // Drawn from the clock, not run as an animation: a tick per pixel the bar loses (every frame for a 10 s
-        // stay, a few a second for 5 min) instead of the panel redrawing at full rate for the whole stay. It also
-        // means nothing that switches animations off can stop it.
-        TimelineView(CountdownTicks(since: since, stay: stay)) { ctx in
-            Rectangle().fill(color.opacity(0.8)).frame(height: 2)
-                .scaleEffect(x: max(0, 1 - ctx.date.timeIntervalSince(since) / stay), y: 1, anchor: .leading)
+        if let pausedAt {
+            // Stood still (screen locked, Mac asleep): drawn once at the time it has left, and no ticks. When it runs
+            // again `since` has moved on, and the timeline below starts afresh from it.
+            line(at: pausedAt)
+        } else {
+            // Drawn from the clock, not run as an animation: a tick per pixel the bar loses (every frame for a 10 s
+            // stay, a few a second for 5 min) instead of the panel redrawing at full rate for the whole stay. It also
+            // means nothing that switches animations off can stop it.
+            TimelineView(CountdownTicks(since: since, stay: stay)) { ctx in line(at: ctx.date) }
         }
+    }
+
+    private func line(at date: Date) -> some View {
+        Rectangle().fill(color.opacity(0.8)).frame(height: 2)
+            .scaleEffect(x: max(0, 1 - date.timeIntervalSince(since) / stay), y: 1, anchor: .leading)
     }
 }
 
