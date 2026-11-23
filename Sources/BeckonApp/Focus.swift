@@ -8,10 +8,13 @@ struct Location: Equatable {
     var bundleID: String?
     var tty: String?
     var pids: [Int32] = []
+    /// Herdr's address for the terminal (`t14`): it has no tty to match, and its own commands take this instead.
+    var herdrTerminal: String?
 
     init() {}
     init(env: [String: String], ancestry: [[String: Any]]) {
         bundleID = Surface.bundleID(env: env)
+        herdrTerminal = Herdr.terminal(env: env)
         pids = ancestry.compactMap { ($0["pid"] as? NSNumber)?.int32Value }
         tty = ancestry.compactMap { $0["tty"] as? String }.first { !$0.isEmpty }.map { "/dev/" + $0 }
     }
@@ -49,6 +52,7 @@ extension URL {
 enum Apps {
     static let ghostty = "com.mitchellh.ghostty"
     static let terminal = "com.apple.Terminal"
+    static let herdr = "dev.herdr.app"
     /// VS Code and the forks that run the same extension API.
     static let vscodeFamily: Set<String> = ["com.microsoft.VSCode", "com.microsoft.VSCodeInsiders", "com.vscodium", "com.todesktop.230313mzl4w4u92"]
 
@@ -218,6 +222,79 @@ enum VSCode {
     }
 }
 
+/// The Herdr app's two command-line tools. Herdr terminals have no tty or Apple-event dictionary to ask, so the
+/// exact terminal is found and shown through them. Every call is bounded like `Script.run`: a slow or missing
+/// binary costs beckon only the exact terminal, never a hang.
+enum Herdr {
+    /// Herdr exports the terminal's address into every terminal it starts.
+    static func terminal(env: [String: String]) -> String? {
+        env["HC_TERMINAL_ID"].flatMap { $0.isEmpty ? nil : $0 }
+    }
+
+    /// `hc get <id>` prints the terminal's record; "parent" is the lead that started it, null for a top-level session.
+    static func parent(fromGet data: Data) -> String? {
+        let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        return (obj?["parent"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+    }
+
+    /// `herdr-app status` prints what the window shows; "agent" is the terminal in front.
+    static func shown(fromStatus data: Data) -> String? {
+        let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        return (obj?["agent"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+    }
+
+    /// beckon is started by launchd, whose PATH lacks ~/.local/bin where both tools are installed.
+    static func executable(_ name: String, path: String? = ProcessInfo.processInfo.environment["PATH"]) -> String? {
+        let dirs = [NSHomeDirectory() + "/.local/bin"] + (path ?? "").split(separator: ":").map(String.init)
+        return dirs.map { $0 + "/" + name }.first { FileManager.default.isExecutableFile(atPath: $0) }
+    }
+
+    /// The lead of that terminal, nil for a top-level session and for "could not ask".
+    static func parent(of id: String, timeout: TimeInterval = 0.5, then: @escaping (String?) -> Void) {
+        DispatchQueue.global(qos: .userInitiated).async {
+            let parent = run("hc", ["get", id], timeout: timeout).flatMap(parent(fromGet:))
+            DispatchQueue.main.async { then(parent) }
+        }
+    }
+
+    /// The terminal the window shows now, nil when Herdr didn't say in time.
+    static func shown(timeout: TimeInterval, then: @escaping (String?) -> Void) {
+        DispatchQueue.global(qos: .userInitiated).async {
+            let shown = run("herdr-app", ["status"], timeout: timeout).flatMap(shown(fromStatus:))
+            DispatchQueue.main.async { then(shown) }
+        }
+    }
+
+    /// Makes the window show that terminal, whether or not it has a pane.
+    static func show(_ id: String) {
+        DispatchQueue.global(qos: .userInitiated).async { _ = run("herdr-app", ["do", "agent.focus", "--terminal", id], timeout: 3) }
+    }
+
+    /// Runs the tool in a child that is killed when it overruns; nil on any failure. Blocking.
+    private static func run(_ tool: String, _ arguments: [String], timeout: TimeInterval) -> Data? {
+        guard let path = executable(tool) else { return nil }
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: path)
+        process.arguments = arguments
+        let out = Pipe()
+        process.standardOutput = out
+        process.standardError = FileHandle.nullDevice
+        let exited = DispatchSemaphore(value: 0)
+        process.terminationHandler = { _ in exited.signal() }
+        do { try process.run() } catch {
+            AuditLog.note("HERDR could not start \(tool): \(error.localizedDescription)")
+            return nil
+        }
+        if exited.wait(timeout: .now() + timeout) == .timedOut {
+            process.terminate()
+            AuditLog.note("HERDR \(tool) no answer within \(timeout) s")
+            return nil
+        }
+        guard process.terminationStatus == 0 else { return nil }
+        return out.fileHandleForReading.readDataToEndOfFile()
+    }
+}
+
 /// Going to the exact place Claude is waiting.
 enum Focus {
     /// The session's own terminal: the Ghostty or Terminal.app tab by tty, the VS Code window and terminal
@@ -241,6 +318,10 @@ enum Focus {
         }
         // The app comes forward at once; the exact tab follows when the script has run.
         Apps.activate(app)
+        if let id = location.herdrTerminal, app == Apps.herdr {
+            Herdr.show(id)
+            return
+        }
         guard let tty = location.tty, let script = terminalScript(app: app, tty: tty, action: .focus) else { return }
         Script.run(script, app: app, prompt: true) { _ in }
     }

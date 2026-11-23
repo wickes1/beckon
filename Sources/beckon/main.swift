@@ -104,7 +104,7 @@ func ancestry() -> String {
 
 // Only the variables that say which terminal / window the session is in.
 let envKeys = ["__CFBundleIdentifier", "TERM_PROGRAM", "TERM_PROGRAM_VERSION", "TMUX", "TMUX_PANE",
-               "ITERM_SESSION_ID", "VSCODE_PID", "VSCODE_IPC_HOOK_CLI", "GHOSTTY_RESOURCES_DIR"]
+               "ITERM_SESSION_ID", "VSCODE_PID", "VSCODE_IPC_HOOK_CLI", "GHOSTTY_RESOURCES_DIR", "HC_TERMINAL_ID"]
 func envJSON() -> String {
     var parts: [String] = []
     for k in envKeys { if let v = getenv(k) { parts.append("\(jsonString(k)):\(jsonString(String(cString: v)))") } }

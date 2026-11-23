@@ -126,6 +126,7 @@ Cards appear, and can be answered, for a session in any terminal. What differs b
 |---|---|
 | VS Code integrated terminal, Claude Code side panel | the exact window and terminal (needs the extension) |
 | Ghostty | the exact tab |
+| Herdr | the exact terminal, including a helper without a pane. No Automation permission needed: beckon uses Herdr's own `herdr-app` and `hc` commands. A helper's "Claude finished" card is not shown, since its lead gets the report |
 | Brave | the exact tab, for `beckon notify --brave-tab` |
 | A web page, for `beckon notify --url` | the page in the default browser. Only `http` and `https` URLs with a host are accepted |
 | Terminal.app | the exact tab — written, not yet run |

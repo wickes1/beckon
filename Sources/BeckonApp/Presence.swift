@@ -54,7 +54,7 @@ enum Presence {
 
     /// True when the session's own terminal is what the user has in front of them, so Claude Code's dialog is
     /// already visible and a card would only be in the way. Exact where beckon can ask (Ghostty and
-    /// Terminal.app by tty, VS Code through its extension); otherwise it falls back to "that app is frontmost".
+    /// Terminal.app by tty, VS Code through its extension, Herdr by terminal id); otherwise it falls back to "that app is frontmost".
     /// Always answers within `patience`: an app too busy to say counts as the fallback.
     static func looking(at location: Location, patience: TimeInterval = 0.35, then: @escaping (Bool) -> Void) {
         guard !locked, let app = location.bundleID, NSWorkspace.shared.frontmostApplication?.bundleIdentifier == app else { then(false); return }
@@ -74,6 +74,8 @@ enum Presence {
                 let onIt = (reply["match"] as? String) == "host" || (reply["activeTerminal"] as? Bool ?? false)
                 finish(focused && onIt)
             }
+        } else if let id = location.herdrTerminal, app == Apps.herdr {
+            Herdr.shown(timeout: patience) { shown in finish(shown.map { $0 == id } ?? true) }
         } else if let tty = location.tty, let script = Focus.terminalScript(app: app, tty: tty, action: .isFront) {
             Script.run(script, app: app, prompt: false) { result in finish(result.map { $0 == "yes" } ?? true) }
         } else {

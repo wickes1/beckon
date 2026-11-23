@@ -90,7 +90,7 @@ enum Intake {
             s.userStarted = false
             guard started else { conn.reply(""); return }
             let message = (payload["last_assistant_message"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            deliver(item(.done(Updates.done(message)), key: "stop|\(session)"), conn, hookPID: hookPID, transcript: s.transcript, wantsContext: false)
+            deliverDone(item(.done(Updates.done(message)), key: "stop|\(session)"), conn, hookPID: hookPID, transcript: s.transcript)
 
         case "StopFailure":
             store.remove { $0.sessionID == session }
@@ -169,6 +169,19 @@ enum Intake {
         }
     }
 
+    /// A helper's Done card is not shown: its lead gets the report, so the card would be a second copy of news
+    /// the user reads there. Anything else from a helper still needs the user. When Herdr can't say (no `hc`,
+    /// no answer in time) the card shows.
+    private static func deliverDone(_ item: Item, _ conn: Connection, hookPID: Int32?, transcript: String?) {
+        guard let id = item.location.herdrTerminal else {
+            deliver(item, conn, hookPID: hookPID, transcript: transcript, wantsContext: false); return
+        }
+        Herdr.parent(of: id) { parent in
+            if parent != nil { conn.reply(""); return }
+            deliver(item, conn, hookPID: hookPID, transcript: transcript, wantsContext: false)
+        }
+    }
+
     /// A reply typed on a Done card starts a turn the same way a prompt in the terminal does.
     static func userReplied(session: String) { sessions[session]?.userStarted = true }
 }
@@ -209,6 +222,8 @@ struct Surface {
     let appName: String
 
     static func bundleID(env: [String: String]) -> String? {
+        // Herdr's terminals claim TERM_PROGRAM=ghostty and carry no bundle id, so its own variable is checked first.
+        if Herdr.terminal(env: env) != nil { return Apps.herdr }
         if let id = env["__CFBundleIdentifier"] { return id }
         switch env["TERM_PROGRAM"] {
         case "vscode": return "com.microsoft.VSCode"

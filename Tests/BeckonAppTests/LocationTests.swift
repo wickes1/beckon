@@ -33,6 +33,34 @@ import Testing
     }
 }
 
+@Suite struct HerdrTerminals {
+    // herdr-core gives every terminal TERM_PROGRAM=ghostty and no bundle id: read as Ghostty, a click would
+    // raise the wrong app and "already looking" would ask Ghostty about a terminal it doesn't have.
+    @Test func herdrTerminalIsNotMistakenForGhostty() {
+        let env = ["HC_TERMINAL_ID": "t14", "TERM_PROGRAM": "ghostty"]
+        #expect(Surface.bundleID(env: env) == Apps.herdr)
+        #expect(Location(env: env, ancestry: []).herdrTerminal == "t14")
+        #expect(Surface.bundleID(env: ["TERM_PROGRAM": "ghostty"]) == Apps.ghostty)
+        #expect(Surface(env: ["HC_TERMINAL_ID": ""]).bundleID == nil)
+    }
+
+    // The parent decides whether a Done card is shown: only a real lead may hide it. A top-level session
+    // (null) and an answer that isn't the record both leave the card showing.
+    @Test func parentIsReadFromTheRecord() {
+        #expect(Herdr.parent(fromGet: Data(#"{"address":"t1k","parent":"t14","state":"live"}"#.utf8)) == "t14")
+        #expect(Herdr.parent(fromGet: Data(#"{"address":"t14","parent":null}"#.utf8)) == nil)
+        #expect(Herdr.parent(fromGet: Data("not json".utf8)) == nil)
+    }
+
+    // "Is he looking at it" compares this with the terminal id; a missing answer must come out as nil so
+    // the caller falls back to "Herdr is frontmost" instead of reading it as a different terminal.
+    @Test func shownTerminalIsReadFromStatus() {
+        #expect(Herdr.shown(fromStatus: Data(#"{"zoom":1.0,"agent":"t14","errors":[]}"#.utf8)) == "t14")
+        #expect(Herdr.shown(fromStatus: Data(#"{"zoom":1.0}"#.utf8)) == nil)
+        #expect(Herdr.shown(fromStatus: Data()) == nil)
+    }
+}
+
 @Suite struct TabScripts {
     // The tty goes into AppleScript source: a quote in it must not be able to end the string and run something else.
     @Test func ttyIsQuotedIntoTheScript() {
